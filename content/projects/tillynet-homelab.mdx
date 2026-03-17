@@ -1,0 +1,48 @@
+---
+title: "TillyNet Home Lab"
+status: "Active"
+description: "Enterprise-grade home lab: 16 VLANs, Proxmox cluster, pfSense firewall, Samba AD, Authentik SSO, Traefik reverse proxy, 802.1X EAP-TLS authentication."
+tags: ["Proxmox", "pfSense", "Docker", "Samba AD", "Authentik", "Traefik", "RADIUS", "802.1X"]
+github: "https://github.com/michaeltilly"
+startDate: "2025-04-10"
+featured: true
+order: 1
+---
+
+## Overview
+
+TillyNet is a self-hosted lab environment that simulates enterprise-grade IT infrastructure. Built on Proxmox virtualization with pfSense firewall enforcement, it features 16 segmented VLANs, centralized identity management via Samba Active Directory, single sign-on through Authentik, reverse proxy with Traefik, and enterprise 802.1X port-based authentication.
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| Hypervisor | Proxmox VE | Virtual machine and container management |
+| Firewall | pfSense | VLAN routing, NAT, firewall rules |
+| Identity | Samba AD | Domain controller, LDAP, DNS |
+| SSO | Authentik | Single sign-on, LDAPS integration |
+| Reverse Proxy | Traefik | TLS termination, service routing |
+| DNS | Pi-hole | Ad-blocking, local DNS resolution |
+| Auth | FreeRADIUS | 802.1X EAP-TLS port authentication |
+| IaC | Docker Compose | Service deployment and management |
+
+## Build Journey
+
+This lab was built incrementally over several months. Each step is documented as a detailed blog post:
+
+1. **[The Big Bang](/blog/post-1)** — Proxmox + pfSense foundation (April 2025)
+2. **[Network Management Isolation](/blog/post-2)** — Management VLAN separation
+3. **[Remote VLAN Recovery](/blog/post-3)** — Proxmox network repair over VPN
+4. **[Pi-hole DNS](/blog/post-4)** — DNS migration to production VLAN
+5. **[Publishing Pipeline](/blog/post-5)** — Blog automation setup
+6. **[Network Topologies](/blog/post-6)** — Topology experimentation
+7. **[Current TillyNet Version](/blog/post-7)** — Architecture snapshot
+8. **[Wi-Fi Proxmox Node](/blog/post-8)** — Dell XPS laptop as compute node
+9. **[VM Connectivity Fix](/blog/post-9)** — Routed subnet troubleshooting
+10. **[Samba AD](/blog/post-10)** — Domain controller provisioning
+11. **[Authentik SSO](/blog/post-11)** — Docker-based identity provider
+12. **[LDAPS Integration](/blog/post-12)** — Samba AD + Authentik via LDAPS
+13. **[Traefik Reverse Proxy](/blog/post-13)** — TLS termination with internal CA
+14. **[Authentik + Traefik](/blog/post-14)** — Forward auth middleware
+15. **[PKI Chain of Trust](/blog/post-15)** — Root CA + intermediate CA hierarchy
+16. **[802.1X EAP-TLS](/blog/post-16)** — Enterprise port-based authentication

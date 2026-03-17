@@ -14,9 +14,12 @@ export function BlogImage({ src, alt = "", caption }: BlogImageProps) {
 
   return (
     <>
-      <figure className="my-6">
-        <button
+      <span className="block my-6">
+        <span
+          role="button"
+          tabIndex={0}
           onClick={() => setIsOpen(true)}
+          onKeyDown={(e) => e.key === "Enter" && setIsOpen(true)}
           className="block w-full cursor-zoom-in"
         >
           <img
@@ -25,13 +28,13 @@ export function BlogImage({ src, alt = "", caption }: BlogImageProps) {
             className="w-full rounded-lg border border-gray-200 dark:border-gray-800 shadow-md hover:shadow-lg transition-shadow"
             loading="lazy"
           />
-        </button>
+        </span>
         {caption && (
-          <figcaption className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
+          <span className="block mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
             {caption}
-          </figcaption>
+          </span>
         )}
-      </figure>
+      </span>
 
       {isOpen && (
         <div

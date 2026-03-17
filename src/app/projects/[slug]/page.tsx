@@ -13,8 +13,8 @@ const mdxComponents = {
   Callout,
   NetworkDiagram,
   BlogImage,
-  img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<"img">) => (
-    <BlogImage src={src || ""} alt={alt || ""} {...props} />
+  img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => (
+    <BlogImage src={typeof src === "string" ? src : ""} alt={typeof alt === "string" ? alt : ""} />
   ),
 };
 

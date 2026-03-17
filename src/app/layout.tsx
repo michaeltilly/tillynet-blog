@@ -14,6 +14,27 @@ export const metadata: Metadata = {
   },
   description:
     "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+  metadataBase: new URL("https://blog.tillynet.com"),
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "https://blog.tillynet.com",
+    siteName: "TillyNet",
+    title: "TillyNet - Network Engineering Portfolio",
+    description:
+      "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TillyNet",
+    description:
+      "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+  },
+  alternates: {
+    types: {
+      "application/rss+xml": "/rss.xml",
+    },
+  },
 };
 
 export default function RootLayout({

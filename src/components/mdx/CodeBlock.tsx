@@ -11,13 +11,14 @@ interface CodeBlockProps {
 export function CodeBlock({ children, className }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
-  const getTextContent = (node: React.ReactNode): string => {
+  const getTextContent = (node: unknown): string => {
     if (typeof node === "string") return node;
     if (typeof node === "number") return String(node);
     if (!node) return "";
     if (Array.isArray(node)) return node.map(getTextContent).join("");
-    if (typeof node === "object" && "props" in node) {
-      return getTextContent(node.props.children);
+    if (typeof node === "object" && node !== null && "props" in node) {
+      const el = node as { props: { children?: unknown } };
+      return getTextContent(el.props.children);
     }
     return "";
   };

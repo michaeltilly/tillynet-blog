@@ -62,11 +62,11 @@ export function HeroSection() {
           Michael Tillman
         </h1>
         <p className="mt-4 text-xl text-cyan-600 dark:text-cyan-400 font-medium">
-          Network Engineer &middot; Cloud Architect &middot; Home Labber
+          CCNP Network Engineer &middot; Network Automation &middot; SD-Access
         </p>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-600 dark:text-gray-400 leading-relaxed">
-          Building enterprise-grade infrastructure from the ground up. Documenting every VLAN,
-          every firewall rule, and every lesson learned along the way.
+          Designing, automating, and modernizing mission-critical enterprise networks.
+          Turning complex network challenges into reliable, automated solutions.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <Link

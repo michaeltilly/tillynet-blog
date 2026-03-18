@@ -20,11 +20,11 @@ const projects = [
   },
   {
     title: "CCNP Certification Journey",
-    description: "ENCOR and ENAUTO lab environments, SD-Access configurations, practice exams, and hands-on lab documentation.",
+    description: "Earned CCNP Enterprise via ENCOR + DevNet ENAUTO. SD-Access lab builds, routing protocol deep dives, and automation with Python and APIs.",
     icon: Award,
-    tags: ["OSPF", "IS-IS", "SD-Access", "Cisco"],
+    tags: ["OSPF", "IS-IS", "SD-Access", "Ansible", "Python"],
     href: "/projects/ccnp-journey",
-    status: "In Progress",
+    status: "Achieved",
   },
 ];
 

@@ -2,28 +2,28 @@ import Link from "next/link";
 
 const skills = [
   {
-    category: "Networking",
-    items: ["pfSense", "VLANs", "802.1X", "OSPF", "IS-IS"],
+    category: "Enterprise Networking",
+    items: ["Cisco SD-Access", "OSPF", "IS-IS", "BGP", "VLANs", "802.1X"],
     evidence: "/tags/homelab",
-    certification: "CCNP ENCOR",
+    certification: "CCNP Enterprise",
   },
   {
-    category: "Cloud (AWS)",
-    items: ["Terraform", "VPC", "EC2", "S3", "Site-to-Site VPN"],
+    category: "Network Automation",
+    items: ["Ansible", "Python", "PowerShell", "RESTCONF", "NETCONF"],
+    evidence: "/tags/docker",
+    certification: "DevNet ENAUTO",
+  },
+  {
+    category: "Cloud Infrastructure",
+    items: ["Terraform", "AWS VPC", "EC2", "S3", "Site-to-Site VPN"],
     evidence: "/tags/aws",
     certification: "AWS Labs",
   },
   {
-    category: "Automation",
-    items: ["Python", "Ansible", "Docker", "CI/CD"],
-    evidence: "/tags/docker",
-    certification: "ENAUTO 300-435",
-  },
-  {
-    category: "Identity & Security",
-    items: ["Samba AD", "Authentik SSO", "PKI/TLS", "RADIUS"],
+    category: "Security & Compliance",
+    items: ["STIG Compliance", "PKI/TLS", "EAP-TLS", "RADIUS", "Samba AD"],
     evidence: "/tags/authentication",
-    certification: "Home Lab",
+    certification: "DoD Cleared",
   },
 ];
 

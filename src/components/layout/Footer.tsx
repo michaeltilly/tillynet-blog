@@ -8,7 +8,7 @@ export function Footer() {
           <div className="text-center sm:text-left">
             <p className="text-lg font-semibold text-gray-900 dark:text-white">TillyNet</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Building enterprise-grade infrastructure from the ground up.
+              CCNP Network Engineer. Automating enterprise networks.
             </p>
           </div>
           <div className="flex items-center gap-4">

@@ -13,22 +13,22 @@ export const metadata: Metadata = {
     template: "%s | TillyNet",
   },
   description:
-    "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+    "CCNP Network Engineer specializing in SD-Access, network automation, and enterprise infrastructure. Technical blog by Michael Tillman.",
   metadataBase: new URL("https://blog.tillynet.com"),
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://blog.tillynet.com",
     siteName: "TillyNet",
-    title: "TillyNet - Network Engineering Portfolio",
+    title: "TillyNet - Michael Tillman | CCNP Network Engineer",
     description:
-      "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+      "CCNP Network Engineer specializing in SD-Access, network automation, and enterprise infrastructure. Technical blog by Michael Tillman.",
   },
   twitter: {
     card: "summary_large_image",
     title: "TillyNet",
     description:
-      "Network engineering portfolio, cloud infrastructure labs, and technical blog by Michael Tillman.",
+      "CCNP Network Engineer specializing in SD-Access, network automation, and enterprise infrastructure. Technical blog by Michael Tillman.",
   },
   alternates: {
     types: {

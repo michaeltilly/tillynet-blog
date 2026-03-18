@@ -1,35 +1,50 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Github, Linkedin, Mail, Award } from "lucide-react";
+import { Github, Linkedin, Award, Shield, CheckCircle } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "About",
-  description: "About Michael Tillman - Network Engineer, Cloud Architect, and Home Labber.",
+  description: "About Michael Tillman - CCNP Network Engineer specializing in SD-Access, network automation, and enterprise infrastructure.",
 };
 
 const certifications = [
   {
-    name: "CCNP ENCOR",
-    code: "350-401",
-    status: "In Progress",
+    name: "CCNP Enterprise",
+    code: "Cisco Certified Network Professional",
+    status: "Achieved",
     href: "/projects/ccnp-journey",
   },
   {
-    name: "ENAUTO",
-    code: "300-435",
-    status: "In Progress",
+    name: "ENCOR",
+    code: "350-401 — Enterprise Core",
+    status: "Achieved",
+    href: "/projects/ccnp-journey",
+  },
+  {
+    name: "DevNet Specialist — ENAUTO",
+    code: "300-435 — Enterprise Automation",
+    status: "Achieved",
     href: "/projects/ccnp-journey",
   },
 ];
 
 const timeline = [
   {
+    year: "Present",
+    events: [
+      "CCNP-certified Network Engineer with Active DoD Secret Clearance",
+      "Specializing in Cisco SD-Access ecosystems, secure transport architectures, and complex routing",
+      "Driving network automation with Ansible, Python, and PowerShell for zero-downtime deployments",
+      "Enforcing STIG compliance and continuous modernization of mission-critical networks",
+    ],
+  },
+  {
     year: "2025",
     events: [
-      "Built TillyNet home lab — 16 VLANs, Proxmox, pfSense, Samba AD, 802.1X",
-      "Deployed hybrid cloud infrastructure with AWS Site-to-Site VPN",
-      "Started CCNP ENCOR and ENAUTO certification tracks",
-      "Published 20 technical blog posts documenting the journey",
+      "Earned CCNP Enterprise certification (ENCOR + DevNet ENAUTO)",
+      "Built TillyNet home lab — 16 VLANs, Proxmox, pfSense, Samba AD, 802.1X EAP-TLS",
+      "Deployed hybrid cloud infrastructure with AWS Site-to-Site VPN via Terraform",
+      "Published 20+ technical blog posts documenting enterprise infrastructure builds",
     ],
   },
 ];
@@ -44,16 +59,26 @@ export default function AboutPage() {
         </h1>
         <div className="mt-6 space-y-4 text-gray-600 dark:text-gray-400 leading-relaxed">
           <p>
-            I&apos;m Michael Tillman, a network engineer and cloud architect passionate about
-            building enterprise-grade infrastructure. TillyNet is my self-hosted lab
-            environment that simulates real-world IT infrastructure — featuring VLAN
-            segmentation, virtualized services, firewall enforcement, DNS resolution,
-            and automation workflows.
+            I&apos;m Michael Tillman, a CCNP-certified Network Engineer with an Active DoD
+            Secret Clearance. I specialize in the design, automation, and continuous
+            modernization of mission-critical, enterprise-scale networks.
           </p>
           <p>
-            Built to bridge theory with practice, this lab showcases hands-on
-            experimentation in modern network architecture and systems engineering. Every
-            configuration, every failure, and every fix is documented on this blog.
+            My technical foundation centers on Cisco Software-Defined Access (SDA) ecosystems,
+            secure transport architectures, and complex routing. I am driven by network
+            automation — leveraging Ansible, Python, and PowerShell to eliminate manual overhead,
+            enforce strict STIG compliance, and execute large-scale, zero-downtime deployments.
+          </p>
+          <p>
+            I excel at translating complex network challenges into reliable, automated solutions
+            that reduce operational risk. I partner with stakeholders to provide advanced
+            engineering support, drive continuous improvement initiatives, and ensure that
+            technical architectures securely and efficiently meet overarching business objectives.
+          </p>
+          <p>
+            TillyNet is my personal lab environment where I experiment with enterprise
+            technologies outside of production — documenting every configuration, every failure,
+            and every lesson learned on this blog.
           </p>
         </div>
       </section>
@@ -63,7 +88,7 @@ export default function AboutPage() {
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
           Certifications
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4">
           {certifications.map((cert) => (
             <Link
               key={cert.code}
@@ -71,19 +96,40 @@ export default function AboutPage() {
               className="group flex items-start gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-5 hover:border-cyan-500/50 transition-all"
             >
               <Award className="h-8 w-8 text-cyan-500 shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-cyan-500 transition-colors">
-                  {cert.name}
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-cyan-500 transition-colors">
+                    {cert.name}
+                  </h3>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/30 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
+                    <CheckCircle className="h-3 w-3" />
+                    {cert.status}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                   {cert.code}
                 </p>
-                <span className="mt-2 inline-block rounded-full bg-amber-100 dark:bg-amber-900/30 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-                  {cert.status}
-                </span>
               </div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      {/* Clearance */}
+      <section className="mt-16">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+          Clearance
+        </h2>
+        <div className="flex items-start gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-5">
+          <Shield className="h-8 w-8 text-cyan-500 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              DoD Tier 3 Secret Clearance
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              Active
+            </p>
+          </div>
         </div>
       </section>
 

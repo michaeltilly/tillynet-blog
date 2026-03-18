@@ -230,7 +230,7 @@ def main() -> None:
             cwd=BLOG_ROOT, check=True
         )
         subprocess.run(
-            ["git", "push", "origin", "main"],
+            ["git", "push", "origin", "master"],
             cwd=BLOG_ROOT, check=True
         )
         log("  Pushed to GitHub. Vercel will auto-deploy.")

@@ -9,13 +9,11 @@ draft: false
 
 ## Introduction
 
-Network Access Control (NAC) has become a cornerstone of enterprise security, ensuring that only authorized devices can connect to corporate networks. While technologies like 802.1X are commonplace in enterprise environments, implementing them in a home lab presents unique challenges and learning opportunities. In this article, I'll walk through my complete implementation of 802.1X EAP-TLS authentication using FreeRADIUS, Samba4 Active Directory, and Cisco Catalyst switches.
+802.1X with EAP-TLS is the gold standard for wired network access control -- and it is notoriously painful to get right, even in production. In this post, I walk through my full implementation using FreeRADIUS, Samba4 Active Directory, and a Cisco Catalyst 2960, covering the PKI design, every configuration file that matters, and the five troubleshooting issues I hit along the way.
 
-This implementation goes beyond simple password-based authentication by leveraging X.509 certificates for device authentication, providing the same level of security found in enterprise environments while serving as an excellent learning platform for understanding enterprise network security architectures.
+This goes beyond simple password-based authentication by leveraging X.509 certificates for device authentication, providing the same level of security found in enterprise environments.
 
 ## Architecture Overview
-
-My home lab environment consists of several key components that work together to provide enterprise-grade network access control:
 
 **Network Infrastructure:**
 
@@ -23,7 +21,7 @@ My home lab environment consists of several key components that work together to
 - Domain: `tillynet.lan`
 - Samba4 Active Directory Domain Controller: `172.30.30.30`
 - pfSense Firewall with FreeRADIUS: `172.16.99.1`
-- Cisco Catalyst 2960 Switch serving as the Network Access Server (NAS)
+- Cisco Catalyst 2960 Switch (Network Access Server)
 - Windows 10/11 domain-joined workstation: `TILLYPC`
 
 **Security Infrastructure:**
@@ -33,28 +31,23 @@ My home lab environment consists of several key components that work together to
 - EAP-TLS authentication protocol
 - Certificate-based device authentication
 
-The architecture follows enterprise best practices by separating the authentication server (FreeRADIUS), directory services (Samba4 AD), and network enforcement (Cisco switch) into distinct components that communicate via standardized protocols.
+The architecture separates the authentication server (FreeRADIUS), directory services (Samba4 AD), and network enforcement (Cisco switch) into distinct components communicating via standardized protocols.
 
 ## Certificate Infrastructure Design
 
-The foundation of any EAP-TLS implementation is a robust Public Key Infrastructure. I designed a two-tier PKI that mirrors enterprise deployments:
+EAP-TLS lives and dies by its PKI. I designed a two-tier hierarchy that mirrors enterprise deployments.
 
 ### Root Certificate Authority
 
-The Root CA operates offline for maximum security, issuing only intermediate certificates. This design ensures that the root private key remains protected while allowing operational flexibility through the intermediate CA.
+The Root CA operates offline for maximum security, issuing only intermediate certificates. The root private key stays protected while the intermediate CA handles day-to-day operations.
 
 ### Intermediate Certificate Authority
 
-I integrated the Intermediate CA directly into my Samba4 Active Directory environment. This approach provides several advantages:
-
-- Centralized certificate management
-- Integration with AD security groups
-- Simplified certificate lifecycle management
-- Realistic enterprise-like setup
+I integrated the Intermediate CA directly into my Samba4 AD environment, giving me centralized certificate management, integration with AD security groups, and a realistic enterprise-like setup.
 
 ### Server Certificate Generation
 
-For the FreeRADIUS server certificate, I developed a shell script that automates the certificate generation process while ensuring proper extensions and Subject Alternative Names (SANs):
+For the FreeRADIUS server certificate, I wrote a script that automates generation while ensuring proper extensions and SANs:
 
 ```bash
 #!/bin/bash
@@ -112,11 +105,11 @@ cat "${OUTPUT_DIR}/${SERVICE_FQDN}.crt" "${CA_CHAIN}" > "${OUTPUT_DIR}/${SERVICE
 rm -f "${EXT_FILE}"
 ```
 
-This script ensures that the server certificate includes the proper Extended Key Usage (EKU) for server authentication and maintains the complete certificate chain required for client validation.
+This script ensures the server certificate includes the proper Extended Key Usage (EKU) for server authentication and maintains the complete chain required for client validation.
 
 ### Client Certificate Generation
 
-Client certificates require different extensions, specifically the Client Authentication EKU. I created a separate script for generating client certificates:
+Client certificates require different extensions -- specifically the Client Authentication EKU. I created a separate script:
 
 ```bash
 #!/bin/bash
@@ -176,7 +169,7 @@ cat "$CERT_DIR/$FQDN.crt" /usr/local/samba/private/tls/ca-chain.crt > "$CERT_DIR
 
 ### PKCS#12 Export for Windows
 
-Windows workstations require certificates in PKCS#12 format. I automated this conversion process:
+Windows workstations require certificates in PKCS#12 format. I automated the conversion:
 
 ```bash
 #!/bin/bash
@@ -207,58 +200,45 @@ openssl pkcs12 -export \
   -passout pass:"$PFX_PASSWORD"
 ```
 
-This approach ensures that Windows clients receive certificates with the complete certificate chain, enabling proper validation against the root CA.
+This ensures Windows clients receive certificates with the complete chain, enabling proper validation against the root CA.
 
-## FreeRADIUS Configuration Deep Dive
+## FreeRADIUS Configuration
 
-Configuring FreeRADIUS for EAP-TLS with Active Directory integration required careful attention to several components. The pfSense FreeRADIUS package provides a web interface, but understanding the underlying configuration is crucial for troubleshooting.
+Configuring FreeRADIUS for EAP-TLS with Active Directory integration required careful attention to several components. The pfSense FreeRADIUS package provides a web interface, but understanding the underlying configuration is essential for troubleshooting.
 
 ### RADIUS Client Configuration
 
-I configured the Cisco switch as a RADIUS client (NAS) with these parameters:
+I configured the Cisco switch as a RADIUS client (NAS):
 
 - **Client Name**: TL-ASW1-2960C
 - **Client IP Address**: The management IP of the switch
-- **Shared Secret**: A complex pre-shared key matching the switch's AAA configuration
+- **Shared Secret**: A 32-character randomly generated pre-shared key matching the switch's AAA configuration
 - **NAS Type**: Cisco
 
-The shared secret must be identical on both the switch and FreeRADIUS server. I used a 32-character randomly generated string to ensure security.
+### LDAP Integration Challenges
 
-### LDAP Integration Challenges and Solutions
+This was the most complex part of the implementation. Windows computer accounts authenticate differently from user accounts, and getting FreeRADIUS to handle that correctly took several attempts.
 
-The most complex aspect of this implementation was configuring FreeRADIUS to authenticate Windows computer accounts against Active Directory. This presented several challenges that required deep understanding of both LDAP and Windows authentication mechanisms.
-
-**Initial LDAP Configuration Attempts:**
-
-My first attempt used user-focused LDAP settings:
+**Initial (broken) LDAP configuration:**
 
 - Base DN: `DC=tillynet,DC=lan`
 - Filter: `(sAMAccountName=%{Stripped-User-Name:-%{User-Name}})`
 - Base Filter: `(objectClass=person)`
 
-This configuration failed because Windows computer authentication works differently from user authentication. Computer accounts authenticate using the format `host/computername.domain`, and they are stored in the `CN=Computers` container by default.
+This failed because Windows computer authentication uses the `host/computername.domain` format, computer accounts live in `CN=Computers` by default, and their sAMAccountName includes a trailing dollar sign.
 
-**Corrected LDAP Configuration:**
-
-After extensive troubleshooting, I implemented these settings:
+**Corrected LDAP configuration:**
 
 - **Base DN**: `CN=Computers,DC=tillynet,DC=lan`
 - **Filter**: `(&(objectClass=computer)(|(sAMAccountName=%{mschap:User-Name}$)(servicePrincipalName=%{User-Name})))`
 - **Base Filter**: `(objectClass=computer)`
-- **LDAP Authentication**: Enabled
-- **LDAP Authorization**: Enabled (critical for proper operation)
+- **LDAP Authorization**: Enabled (critical -- without this, FreeRADIUS cannot process LDAP responses for authorization decisions)
 
-The filter deserves special explanation:
-
-- `objectClass=computer` ensures we only match computer accounts
-- `sAMAccountName=%{mschap:User-Name}$` handles the computer account name with the required dollar sign suffix
-- `servicePrincipalName=%{User-Name}` handles the `host/computername.domain` format used during authentication
+The filter handles two authentication formats: the `sAMAccountName` with trailing `$` for the computer account name, and the `servicePrincipalName` for the `host/computername.domain` format used during authentication.
 
 ### EAP-TLS Configuration
 
-The EAP configuration required specific settings for proper TLS tunnel operation:
-
-**Critical EAP Settings:**
+**Critical EAP settings:**
 
 - **Default EAP Type**: TLS
 - **TLS Configuration**:
@@ -270,27 +250,21 @@ The EAP configuration required specific settings for proper TLS tunnel operation
     - Copy Request to Tunnel: **Yes**
     - Use Tunneled Reply: **Yes**
 
-The "Copy Request to Tunnel" and "Use Tunneled Reply" settings are crucial for passing authentication attributes between the outer and inner authentication contexts.
+The "Copy Request to Tunnel" and "Use Tunneled Reply" settings are crucial -- they pass authentication attributes between the outer and inner authentication contexts.
 
 ### Interface Binding
 
-I configured FreeRADIUS to bind specifically to the management interface (`172.16.99.1`) rather than all interfaces. This approach provides better security and clearer troubleshooting by ensuring RADIUS traffic flows through the intended interface.
+I bound FreeRADIUS specifically to the management interface (`172.16.99.1`) rather than all interfaces, for better security and clearer troubleshooting.
 
 ## Group Policy Configuration for 802.1X
 
-Deploying 802.1X authentication to Windows workstations requires careful Group Policy configuration. I created a comprehensive GPO that handles both certificate deployment and network authentication settings.
-
 ### Certificate Deployment Strategy
 
-While I could have used automatic certificate enrollment, I chose manual certificate deployment for this lab to better understand the process. In production environments, I would recommend:
-
-1. Certificate Templates configured for auto-enrollment
-2. Group Policy-based certificate deployment
-3. Certificate lifecycle management through AD Certificate Services
+I chose manual certificate deployment for this lab to better understand the process. In production, I would recommend auto-enrollment via certificate templates and Group Policy.
 
 ### Wired Network Policy Configuration
 
-I created a new GPO with the following configuration path: **Computer Configuration → Policies → Windows Settings → Security Settings → Wired Network (IEEE 802.3) Policies**
+I created a GPO at: **Computer Configuration > Policies > Windows Settings > Security Settings > Wired Network (IEEE 802.3) Policies**
 
 **Policy Settings:**
 
@@ -305,18 +279,18 @@ I created a new GPO with the following configuration path: **Computer Configurat
 
 ### GPO Deployment and Verification
 
-I linked the GPO to the Workstations OU where my test computer resides. To verify proper application, I used:
+I linked the GPO to the Workstations OU where my test computer resides. To verify:
 
 ```cmd
 gpresult /r /scope computer
 gpupdate /force
 ```
 
-The `gpresult` command confirmed that the wired network policy was being applied correctly to the computer.
+The `gpresult` output confirmed the wired network policy was being applied correctly.
 
 ## Cisco Catalyst 2960 Configuration
 
-The network switch serves as the 802.1X authenticator, enforcing authentication before allowing network access. My configuration implements industry-standard practices for enterprise environments.
+The switch serves as the 802.1X authenticator, blocking network access until authentication succeeds.
 
 ### Global AAA Configuration
 
@@ -333,7 +307,7 @@ radius-server retransmit 3
 aaa authentication dot1x default group radius
 ```
 
-The timeout and retransmit values balance responsiveness with reliability. A 10-second timeout allows for network latency while preventing excessive delays during authentication failures.
+The 10-second timeout balances responsiveness with reliability, allowing for network latency without excessive delays during authentication failures.
 
 ### 802.1X Global Configuration
 
@@ -342,11 +316,11 @@ The timeout and retransmit values balance responsiveness with reliability. A 10-
 dot1x system-auth-control
 ```
 
-This command enables 802.1X globally on the switch. Individual ports must still be configured for 802.1X authentication.
+This enables 802.1X globally on the switch. Individual ports still need per-port configuration.
 
 ### Port-Level Configuration
 
-I configured a test port (FastEthernet0/2) for 802.1X authentication:
+I configured a test port (FastEthernet0/2) for 802.1X:
 
 ```cisco
 interface FastEthernet0/2
@@ -356,22 +330,20 @@ interface FastEthernet0/2
  spanning-tree portfast
 ```
 
-**Configuration Explanation:**
-
 - `switchport mode access`: Configures the port as an access port
-- `authentication port-control auto`: Enables 802.1X authentication (port blocked until successful authentication)
+- `authentication port-control auto`: Blocks the port until successful 802.1X authentication
 - `dot1x pae authenticator`: Sets the port as an 802.1X authenticator
 - `spanning-tree portfast`: Reduces convergence time for end-device connections
 
-## Comprehensive Troubleshooting Journey
+## Troubleshooting Journey
 
-The implementation process involved extensive troubleshooting that provided valuable insights into 802.1X authentication mechanisms. I'll detail the major issues encountered and their resolutions.
+The implementation involved extensive troubleshooting that taught me more than the configuration itself. Here are the five major issues I hit.
 
-### Issue 1: RADIUS Port Configuration Mismatch
+### Issue 1: RADIUS Port Mismatch
 
-**Symptoms:** Initial authentication attempts showed no communication between the switch and FreeRADIUS server.
+**Symptoms:** No communication between the switch and FreeRADIUS.
 
-**Investigation Process:** I enabled debugging on the Cisco switch:
+I enabled debugging on the switch:
 
 ```cisco
 terminal monitor
@@ -387,110 +359,75 @@ The debug output revealed:
 
 **Root Cause:** The switch was using legacy RADIUS ports (1645/1646) instead of the standard ports (1812/1813).
 
-**Resolution:** I updated the switch configuration to explicitly specify the correct ports:
+**Fix:** Explicitly specified the correct ports:
 
 ```cisco
 radius-server host 172.16.99.1 auth-port 1812 acct-port 1813 key YourSharedSecret
 ```
 
-**Verification:** After the configuration change, the debug output showed:
+After the change, debug output confirmed RADIUS communication was working (though authentication still failed -- see Issue 2).
 
-```
-*Feb 10 23:39:15.446: RADIUS: Received from id 1645/36 172.16.99.1:1812, Access-Reject, len 44
-```
+### Issue 2: LDAP Filter Misconfigured for Computer Accounts
 
-This confirmed that RADIUS communication was working, though authentication was still failing.
+**Symptoms:** RADIUS packets reached the server, but authentication consistently returned Access-Reject.
 
-### Issue 2: FreeRADIUS LDAP Filter Configuration
-
-**Symptoms:** RADIUS packets were reaching the server, but authentication consistently failed with "Access-Reject" responses.
-
-**Investigation Process:** I examined the FreeRADIUS logs at `/var/log/radius.log` and found:
+Checking `/var/log/radius.log` showed:
 
 ```
 [ldap] ERROR: Unable to create filter
 [ldap] ERROR: Failed to create LDAP filter
 ```
 
-**Root Cause Analysis:** The LDAP filter was configured for user authentication rather than computer authentication. Windows computer accounts have distinct characteristics:
+**Root Cause:** The LDAP filter was configured for user authentication, not computer authentication. Windows computer accounts use the `host/computername.domain` format, live in `CN=Computers`, and have a trailing `$` on their sAMAccountName.
 
-1. They authenticate using the `host/computername.domain` format
-2. Computer accounts are stored in `CN=Computers` by default
-3. Computer account sAMAccountName includes a trailing dollar sign
+**Fix:** I changed the Base DN to `CN=Computers,DC=tillynet,DC=lan`, updated the filter to `(&(objectClass=computer)(|(sAMAccountName=%{mschap:User-Name}$)(servicePrincipalName=%{User-Name})))`, changed the Base Filter to `(objectClass=computer)`, and enabled LDAP Authorization.
 
-**Resolution:** I reconfigured the LDAP settings:
+### Issue 3: EAP-TLS Tunnel Attribute Passing
 
-- **Base DN**: Changed from `DC=tillynet,DC=lan` to `CN=Computers,DC=tillynet,DC=lan`
-- **Filter**: Updated to `(&(objectClass=computer)(|(sAMAccountName=%{mschap:User-Name}$)(servicePrincipalName=%{User-Name})))`
-- **Base Filter**: Changed from `(objectClass=person)` to `(objectClass=computer)`
+**Symptoms:** After resolving the LDAP issues, authentication intermittently failed with TLS-related errors.
 
-**Additional Configuration:** I also enabled LDAP Authorization, which is required for FreeRADIUS to properly process LDAP responses and make authorization decisions.
+Running `radiusd -X` in debug mode showed the EAP-TLS handshake completing, but inner authentication failing.
 
-### Issue 3: EAP-TLS Tunnel Configuration
+**Root Cause:** The EAP tunnel was not passing authentication attributes between the outer and inner contexts.
 
-**Symptoms:** Even after resolving the LDAP issues, authentication was intermittently failing with TLS-related errors.
+**Fix:** I changed "Copy Request to Tunnel" and "Use Tunneled Reply" from "No" to "Yes" in the EAP-PEAP configuration.
 
-**Investigation Process:** Using `radiusd -X` in debug mode, I observed that the EAP-TLS handshake was completing, but the inner authentication was failing.
-
-**Root Cause:** The EAP tunnel configuration was not properly copying authentication attributes between the outer and inner authentication contexts.
-
-**Resolution:** I updated the EAP-PEAP configuration:
-
-- **Copy Request to Tunnel**: Changed from "No" to "Yes"
-- **Use Tunneled Reply**: Changed from "No" to "Yes"
-
-These settings ensure that authentication attributes are properly passed through the TLS tunnel, allowing the inner authentication mechanism to access the necessary user/computer information.
-
-### Issue 4: Certificate Validation Problems
+### Issue 4: Certificate Validation Failures on the Client
 
 **Symptoms:** Some authentication attempts failed with certificate validation errors on the client side.
 
-**Investigation Process:** I used Windows Event Viewer to examine the System log and found certificate chain validation errors.
+Windows Event Viewer (System log) showed certificate chain validation errors.
 
-**Root Cause:** The Windows client was not properly validating the FreeRADIUS server certificate because:
+**Root Cause:** The certificate chain was incomplete, and the server certificate's CN did not match the configured server name in the client's 802.1X profile.
 
-1. The certificate chain was incomplete
-2. The server certificate's Common Name didn't match the configured server name
+**Fix:**
+1. Ensured FreeRADIUS was configured with the complete chain (server cert + intermediate + root)
+2. Verified the server certificate's CN matched the FQDN in the client's 802.1X profile
+3. Confirmed the root CA was properly installed in the client's Trusted Root Certification Authorities store
 
-**Resolution:**
+### Issue 5: Authentication Timeouts
 
-1. **Complete Certificate Chain**: I ensured that the FreeRADIUS server was configured with the complete certificate chain (server cert + intermediate CA + root CA)
-2. **Certificate Subject Verification**: I verified that the server certificate's CN matched the FQDN configured in the client's 802.1X profile
-3. **Root CA Installation**: I confirmed that the root CA certificate was properly installed in the Windows client's Trusted Root Certification Authorities store
+**Symptoms:** Authentication worked but took excessively long, sometimes timing out.
 
-### Issue 5: Network Timeout and Performance Optimization
+**Root Cause:** LDAP query timeouts, certificate validation delays, and network latency between components.
 
-**Symptoms:** Authentication was working but taking an excessive amount of time, sometimes causing timeouts.
-
-**Investigation Process:** I analyzed the authentication flow timing and identified several bottlenecks:
-
-1. LDAP query timeouts
-2. Certificate validation delays
-3. Network latency between components
-
-**Resolution:** I optimized several timeout values:
-
-- **RADIUS Server Timeout**: Adjusted to 10 seconds on the switch
-- **LDAP Connection Pooling**: Enabled persistent LDAP connections
-- **Certificate Caching**: Configured client-side certificate caching
+**Fix:** I adjusted the RADIUS server timeout to 10 seconds on the switch, enabled persistent LDAP connections (connection pooling), and configured client-side certificate caching.
 
 ## Advanced Troubleshooting Techniques
 
-Throughout this implementation, I developed several troubleshooting methodologies that proved invaluable:
-
 ### Packet Capture Analysis
 
-I used tcpdump on the pfSense firewall to capture and analyze RADIUS traffic:
+I used tcpdump on the pfSense firewall to capture RADIUS traffic:
 
 ```bash
 tcpdump -i em0 -s0 -w radius_capture.pcap udp port 1812
 ```
 
-This approach allowed me to verify that RADIUS packets were reaching the server and to analyze the timing of authentication flows.
+This let me verify RADIUS packets were reaching the server and analyze authentication flow timing.
 
 ### LDAP Testing
 
-To validate LDAP connectivity and search filters, I used ldapsearch directly from the FreeRADIUS host:
+I validated LDAP connectivity and search filters directly from the FreeRADIUS host:
 
 ```bash
 ldapsearch -x -H ldaps://172.30.30.30:636 \
@@ -499,117 +436,42 @@ ldapsearch -x -H ldaps://172.30.30.30:636 \
   "(&(objectClass=computer)(sAMAccountName=TILLYPC$))"
 ```
 
-This command helped verify that the LDAP filter was correctly matching computer accounts.
-
 ### Certificate Validation Testing
-
-I used OpenSSL to test certificate chain validation:
 
 ```bash
 openssl verify -CAfile ca-chain.crt radius.tillynet.lan.crt
 ```
 
-This command confirmed that the certificate chain was properly constructed and that all certificates were valid.
-
 ### Windows Event Log Analysis
 
-On the Windows client, I monitored several event logs:
+On the Windows client, the most useful logs were:
 
-- **System Log**: For 802.1X authentication events
-- **Security Log**: For authentication and authorization events
-- **Applications and Services Logs → Microsoft → Windows → Wired-AutoConfig**: For detailed 802.1X debugging
+- **System Log**: 802.1X authentication events
+- **Security Log**: Authentication and authorization events
+- **Applications and Services Logs > Microsoft > Windows > Wired-AutoConfig**: Detailed 802.1X debugging
 
-## Performance Optimization and Best Practices
+## Lessons Learned
 
-Based on my implementation experience, I identified several optimization opportunities:
-
-### Connection Pooling
-
-I configured FreeRADIUS to maintain persistent connections to the LDAP server, reducing authentication latency and improving reliability.
-
-### Certificate Caching
-
-I enabled certificate caching on both the server and client sides to reduce certificate validation overhead during subsequent authentications.
-
-### Monitoring and Alerting
-
-I implemented monitoring for:
-
-- RADIUS authentication success/failure rates
-- LDAP server connectivity
-- Certificate expiration dates
-- Switch port authentication status
-
-### Security Hardening
-
-I applied several security hardening measures:
-
-- Restricted RADIUS communication to specific VLANs
-- Implemented certificate revocation checking
-- Configured detailed audit logging
-- Applied the principle of least privilege to service accounts
-
-## Lessons Learned and Best Practices
-
-This implementation provided several key insights that would be valuable for enterprise deployments:
-
-### Certificate Management
-
-1. **Automate Certificate Lifecycle**: In production environments, implement automated certificate enrollment and renewal
-2. **Certificate Templates**: Use properly configured certificate templates that include the necessary EKUs and SANs
-3. **Certificate Monitoring**: Implement proactive monitoring for certificate expiration
-
-### LDAP Integration
-
-1. **Service Account Security**: Use dedicated service accounts with minimal required permissions for LDAP binds
-2. **Connection Security**: Always use LDAPS (LDAP over TLS) for authentication traffic
-3. **Search Optimization**: Design LDAP searches to be as specific as possible to reduce directory server load
-
-### Network Design
-
-1. **VLAN Segmentation**: Implement proper VLAN segmentation to isolate authentication traffic
-2. **Redundancy**: Deploy multiple RADIUS servers for high availability
-3. **Monitoring**: Implement comprehensive monitoring of the authentication infrastructure
-
-### Troubleshooting Methodology
-
-1. **Layered Approach**: Troubleshoot authentication issues by examining each layer (network, RADIUS, LDAP, certificates)
-2. **Comprehensive Logging**: Enable detailed logging at all layers during initial deployment
-3. **Test Automation**: Develop automated tests to validate authentication functionality
+- **Computer auth is not user auth.** Windows machines authenticate as `host/computername.domain` with a trailing `$` on the sAMAccountName. If your LDAP filter is built for user accounts, it will silently fail. Target `CN=Computers` and use the compound filter shown above.
+- **"Copy Request to Tunnel" is not optional.** Without it, the inner EAP context cannot see the authentication attributes from the outer context. Turn it on from the start.
+- **Legacy RADIUS ports will bite you.** Cisco switches default to 1645/1646 unless you explicitly specify 1812/1813. Always check with `debug radius` output.
+- **Troubleshoot layer by layer.** Start with `debug radius` and `debug dot1x all` on the switch. Verify RADIUS reachability first, then LDAP connectivity, then certificate chain validation. Trying to debug the whole stack at once is a losing game.
+- **Automate certificate lifecycle in production.** Manual cert deployment worked for this lab, but any real deployment needs auto-enrollment via certificate templates and Group Policy.
 
 ## Future Enhancements
 
-This implementation serves as a foundation for several potential enhancements:
-
-### Dynamic VLAN Assignment
-
-I plan to implement dynamic VLAN assignment based on computer group membership, allowing for automatic network segmentation based on device classification.
-
-### Certificate Lifecycle Management
-
-I'm working on implementing automated certificate enrollment and renewal using AD Certificate Services templates and Group Policy.
-
-### Monitoring and Analytics
-
-I'm developing a comprehensive monitoring solution that will track authentication patterns, identify potential security issues, and provide detailed reporting on network access.
-
-### Integration with Network Access Control
-
-I'm exploring integration with additional NAC solutions to provide more granular access control based on device health, compliance status, and user context.
+- **Dynamic VLAN Assignment**: Assign VLANs based on computer group membership for automatic network segmentation.
+- **Certificate Lifecycle Management**: Automated enrollment and renewal using AD Certificate Services templates and Group Policy.
+- **Monitoring and Analytics**: Track authentication patterns, identify potential security issues, and build detailed reporting on network access.
+- **Extended NAC Integration**: More granular access control based on device health, compliance status, and user context.
 
 ## Conclusion
 
-Implementing 802.1X EAP-TLS authentication in my home lab provided invaluable hands-on experience with enterprise network security technologies. The process involved overcoming numerous technical challenges, from certificate infrastructure design to complex LDAP integration issues.
+Implementing 802.1X EAP-TLS in my home lab was one of the most challenging projects I have taken on, and one of the most rewarding. The key takeaways:
 
-The key takeaways from this implementation include:
+1. **PKI is the foundation.** A well-designed certificate hierarchy, proper EKUs, and chain validation are non-negotiable for EAP-TLS.
+2. **LDAP integration is where complexity hides.** Computer authentication against AD requires understanding Windows auth mechanisms, LDAP schema quirks, and the differences between user and machine accounts.
+3. **Systematic troubleshooting wins.** Debug logs, packet captures, and component-by-component testing saved me hours of guessing.
+4. **Security and performance are always a tradeoff.** Connection pooling, caching, and timeout tuning are just as important as getting the auth flow working in the first place.
 
-1. **Certificate Infrastructure is Critical**: A well-designed PKI is essential for EAP-TLS success. Proper certificate templates, chain validation, and lifecycle management are crucial.
-    
-2. **LDAP Integration Complexity**: Integrating FreeRADIUS with Active Directory for computer authentication requires deep understanding of Windows authentication mechanisms and LDAP schema.
-    
-3. **Troubleshooting Methodology**: Systematic troubleshooting using debug logs, packet captures, and component testing is essential for identifying and resolving authentication issues.
-    
-4. **Security and Performance Balance**: Implementing strong security while maintaining good performance requires careful optimization of timeouts, connection pooling, and caching mechanisms.
-    
-
-This implementation now serves as a robust foundation for exploring advanced network access control concepts and provides a realistic environment for testing enterprise security scenarios. The experience gained from building this system from the ground up has significantly enhanced my understanding of enterprise network security architecture and the complex interactions between its various components.
+This setup now serves as a robust platform for exploring advanced NAC concepts and testing enterprise security scenarios.

@@ -27,23 +27,18 @@ categories:
 draft: false
 ---
 
-## Overview
-
-This post documents my journey building a production-grade hybrid cloud infrastructure that securely connects my on-premises homelab environment with AWS. The implementation demonstrates enterprise-level network segmentation, DNS integration, and security practices using Infrastructure as Code (IaC) principles.
+Getting a VPN tunnel up between your home lab and AWS is one thing. Getting DNS to work seamlessly across both environments? That is where the real complexity lives. In this post, I document how I built a hybrid cloud infrastructure with VPN connectivity, Route 53 Resolver endpoints, and Samba4 AD DNS integration -- and the DNS delegation rabbit hole I fell into along the way.
 
 ## Architecture Goals
 
-My primary objectives were to:
+- Establish secure VPN connectivity between on-premises and AWS
+- Implement seamless DNS resolution across both environments
+- Maintain security isolation while enabling necessary communication
+- Manage everything with Terraform for reproducible deployments
 
-- **Establish secure connectivity** between on-premises and AWS environments
-- **Implement seamless DNS resolution** across both environments
-- **Maintain security isolation** while enabling necessary communication
-- **Use Infrastructure as Code** for reproducible deployments
-- **Follow enterprise best practices** for hybrid cloud architectures
+## On-Premises Infrastructure
 
-## On-Premises Infrastructure Overview
-
-My existing homelab infrastructure includes:
+My existing homelab includes:
 
 - **Samba4 Active Directory Domain Controller** (172.30.30.30) - Authoritative DNS for `tillynet.lan`
 - **Pi-hole DNS Server** (172.21.21.21) - Recursive DNS with ad-blocking
@@ -57,13 +52,13 @@ My existing homelab infrastructure includes:
 
 ### DNS Hierarchy
 
-My DNS architecture follows enterprise patterns:
+My DNS architecture follows a common enterprise pattern:
 
 ```
 Client Queries → Samba4 AD DC (Authoritative) → Pi-hole (Recursive) → External DNS
 ```
 
-This design provides centralized domain management while maintaining ad-blocking and filtering capabilities.
+This gives me centralized domain management through Samba4 while maintaining Pi-hole's ad-blocking and filtering.
 
 ## AWS Infrastructure Design
 
@@ -212,13 +207,13 @@ resource "aws_vpn_gateway_route_propagation" "private_propagation_enhanced" {
 }
 ```
 
-This configuration automatically advertises all my on-premises networks to AWS and enables route propagation for seamless connectivity.
+This advertises all my on-premises networks to AWS and enables route propagation so I do not have to manually manage routes.
 
 ## DNS Infrastructure Design
 
 ### Route 53 Resolver Endpoints
 
-To enable bi-directional DNS resolution, I implemented Route 53 Resolver endpoints:
+This is where the interesting part begins. To enable bi-directional DNS resolution, I deployed Route 53 Resolver endpoints:
 
 ```hcl
 # dns.tf
@@ -288,7 +283,7 @@ resource "aws_route53_resolver_rule" "onprem_forward" {
 }
 ```
 
-This enables AWS instances to resolve my on-premises domain names.
+This tells AWS to forward any `tillynet.lan` queries to my Samba4 DC over the VPN tunnel, enabling AWS instances to resolve on-premises hostnames.
 
 ### Private Hosted Zone
 
@@ -502,11 +497,11 @@ resource "aws_instance" "hybrid_app" {
 }
 ```
 
-## DNS Integration Challenges and Solutions
+## DNS Integration: The Hard Part
 
-### Initial Approach: DNS Delegation
+### Initial Approach: DNS Delegation (This Did Not Work)
 
-My first approach attempted to use DNS delegation from Samba4 to AWS Route 53:
+My first instinct was to use proper DNS delegation from Samba4 to the Route 53 Resolver:
 
 ```bash
 # Create AWS subdomain zone
@@ -519,30 +514,22 @@ sudo samba-tool dns add 172.30.30.30 tillynet.lan aws NS aws-resolver.tillynet.l
 sudo samba-tool dns add 172.30.30.30 tillynet.lan aws-resolver A 10.1.2.10 -U Administrator
 ```
 
-### Problems Encountered
+### What Went Wrong
 
-1. **Resolver Connectivity Issues**
-    
+1. **Resolver connectivity** -- Only the private subnet resolver (10.1.2.10) was reachable from on-prem, since my firewall rules block traffic between on-prem networks and the AWS public subnet. The public resolver at 10.1.1.10 just timed out:
+
     ```bash
-    # Testing both resolver IPs
     nslookup app01.aws.tillynet.lan 10.1.1.10  # Timeout
     nslookup app01.aws.tillynet.lan 10.1.2.10  # Success
     ```
-    
-    By design only the private subnet resolver (10.1.2.10) was reachable from my on-prem networks since traffic between my on-prem networks and aws-public-subnets was not permitted. 
-    
-2. **Samba4 Delegation Behavior**
-    
-    Samba4 doesn't follow NS delegation for subdomains like traditional DNS servers. Even with correct delegation setup, queries weren't being forwarded properly.
-    
-3. **Conflicting NS Records**
-    
-    Having both `samba.tillynet.lan` and `aws-resolver.tillynet.lan` as nameservers created resolution conflicts.
-    
+
+2. **Samba4 does not follow NS delegation like BIND** -- Even with correct NS and glue records, Samba4 was not forwarding subdomain queries to the Route 53 Resolver. This was the biggest surprise.
+
+3. **Conflicting NS records** -- Having multiple nameservers for the same zone created resolution conflicts.
 
 ### Final Solution: Direct Zone Management
 
-I resolved the issues by making Samba4 directly authoritative for the AWS subdomain:
+I abandoned delegation entirely and made Samba4 directly authoritative for the `aws.tillynet.lan` zone:
 
 ```bash
 # Remove delegation records
@@ -554,12 +541,7 @@ sudo samba-tool dns add 172.30.30.30 aws.tillynet.lan app01 A 10.1.2.76 -U Admin
 sudo samba-tool dns add 172.30.30.30 aws.tillynet.lan bastion A 10.1.1.101 -U Administrator
 ```
 
-This approach provides:
-
-- **Immediate resolution** without delegation complexity
-- **Central management** of all DNS records
-- **Better performance** (no network hops to AWS)
-- **Simplified troubleshooting**
+This approach gives me immediate resolution without delegation complexity, centralized management of all DNS records, better performance (no extra network hops to AWS for lookups), and much simpler troubleshooting. The tradeoff is that I have to manually add A records in Samba4 when I deploy new AWS instances, but for a lab environment that is perfectly acceptable.
 
 ## Connectivity Testing and Validation
 
@@ -644,17 +626,9 @@ terraform apply
 
 ## Lessons Learned
 
-### DNS Delegation Complexity
-
-**Challenge**: Samba4 doesn't handle DNS delegation like traditional DNS servers. **Solution**: Direct zone management is often simpler and more reliable for hybrid environments.
-
-### Security Group Design
-
-**Challenge**: Balancing security with functionality. **Solution**: Implement different access patterns for different resource types (bastion vs. private instances).
-
-### Route 53 Resolver Placement
-
-**Challenge**: Not all resolver endpoints may be reachable. **Solution**: Test connectivity to all endpoints and use only working ones.
+1. **Do not assume Samba4 behaves like BIND.** DNS delegation that works perfectly with traditional DNS servers may not work at all with Samba4 AD. Test early and have a fallback plan.
+2. **Design security groups for distinct access patterns.** The bastion host should only be reachable from the internet; private instances should only be reachable from on-prem via VPN. Mixing these patterns creates confusion and weakens security.
+3. **Test resolver endpoint reachability before relying on them.** Just because you deployed a resolver in a subnet does not mean your on-prem network can reach it. Verify your firewall and routing rules first.
 
 ## Performance and Cost Considerations
 
@@ -689,17 +663,9 @@ terraform apply
 
 ## Conclusion
 
-This hybrid infrastructure implementation demonstrates enterprise-grade practices for securely connecting on-premises and cloud environments. The combination of proper network segmentation, security controls, and DNS integration provides a solid foundation for hybrid cloud operations.
+The biggest takeaway from this lab is that the "correct" solution is not always the one that works. DNS delegation is the textbook approach for subdomain resolution, but Samba4's behavior made it a dead end. Direct zone management is less elegant but works reliably, and in a hybrid environment, reliability beats elegance every time.
 
-Key achievements:
-
-- **Secure VPN connectivity** between environments
-- **Seamless DNS resolution** across hybrid infrastructure
-- **Defense-in-depth security** with multiple isolation layers
-- **Infrastructure as Code** for reproducible deployments
-- **Scalable architecture** ready for service expansion
-
-The pragmatic approach of using direct DNS zone management over complex delegation proved that sometimes the simplest solution that works is better than a theoretically perfect solution that doesn't. This infrastructure now serves as the foundation for deploying hybrid applications and services across both environments.
+This infrastructure now gives me VPN connectivity, seamless DNS resolution (using `ssh ec2-user@app01.aws.tillynet.lan` from my desk), and a solid Terraform-managed foundation for whatever I build next.
 
 ## Technical Specifications
 

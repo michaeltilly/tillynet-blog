@@ -10,17 +10,19 @@ draft: false
 
 ## Overview
 
-This phase of the HomeLab project documents the successful migration of the internal Pi-hole DNS server from the flat LAN network to a newly created and isolated **Production VLAN**. This change enhances security, improves segmentation, and prepares the environment for scalable DNS resolution across all other VLANs.
+Running Pi-hole on a flat LAN alongside user devices is convenient but insecure — this post covers how I migrated it to a dedicated Production VLAN, enabling controlled inter-VLAN DNS resolution with proper firewall rules.
+
+This phase of the HomeLab project documents the migration of the internal Pi-hole DNS server from the flat LAN network to a newly created and isolated **Production VLAN**. This improves segmentation and prepares the environment for scalable DNS resolution across all VLANs.
 
 ---
 
 ## Objectives
 
-- Create and configure a dedicated Production VLAN on pfSense  
-- Migrate the Pi-hole LXC container to the new VLAN  
-- Ensure inter-VLAN DNS resolution using Pi-hole  
-- Apply proper firewall rules to restrict unnecessary access  
-- Update DHCP DNS settings across all VLANs  
+- Create and configure a dedicated Production VLAN on pfSense
+- Migrate the Pi-hole LXC container to the new VLAN
+- Ensure inter-VLAN DNS resolution using Pi-hole
+- Apply firewall rules to restrict unnecessary access
+- Update DHCP DNS settings across all VLANs
 
 ---
 
@@ -47,6 +49,7 @@ This phase of the HomeLab project documents the successful migration of the inte
 ### 2. Updated Pi-hole LXC Container Configuration
 
 - Edited the container via Proxmox:
-  
+
 ```bash
 pct set <CTID> -net0 name=eth0,bridge=vmbr0,tag=<VLAN_ID>,ip=<Pi-hole_IP>/24,gw=<VLAN_Gateway>
+```

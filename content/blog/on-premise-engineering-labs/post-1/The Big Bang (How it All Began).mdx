@@ -8,7 +8,9 @@ draft: false
 
 # HomeLab: Initial Network Setup
 
-This project documents the first working phase of my home network infrastructure built on top of Proxmox, using pfSense as a virtual firewall/router and LXC containers to host internal services. The design lays the foundation for a scalable, secure, and isolated home lab environment.
+Every production-grade network starts with a solid foundation — this post covers how I built mine from scratch using Proxmox, pfSense, and LXC containers, laying the groundwork for a segmented, scalable home lab.
+
+This project documents the first working phase of my home network infrastructure. The design uses pfSense as a virtual firewall/router and LXC containers to host internal services, all running on Proxmox.
 
 ---
 
@@ -17,8 +19,8 @@ This project documents the first working phase of my home network infrastructure
 - **Hypervisor:** Proxmox VE running on Protectli Vault VP2420 (Intel J6412, 4 NICs)
 - **Router/Firewall:** pfSense VM
 - **Internal Services:**
-  - Pi-hole (LXC) – local recursive DNS + ad-blocking
-  - Omada Controller (LXC) – TP-Link AP management
+  - Pi-hole (LXC) — local recursive DNS + ad-blocking
+  - Omada Controller (LXC) — TP-Link AP management
 - **LAN Devices:** Proxmox host, personal workstation, AP, switch
 - **Guest Devices:** IoT & roommate devices on isolated VLAN 14
 
@@ -40,16 +42,16 @@ This project documents the first working phase of my home network infrastructure
 
 ## Setup Timeline
 
-### Phase 1 – Core Infrastructure
+### Phase 1 — Core Infrastructure
 
 - Flashed Proxmox onto Protectli Vault
 - Created pfSense VM with 2 passthrough NICs:
   - WAN: connected to ISP modem
   - LAN: connected to Cisco switch (trunk-ready)
 - Configured `vmbr0` as LAN bridge in Proxmox
-- Gave Proxmox host static IP on the LAN network
+- Assigned a static IP to the Proxmox host on the LAN network
 
-### Phase 2 – Internal Services
+### Phase 2 — Internal Services
 
 - Provisioned LXC container for Pi-hole
   - Static IP assigned
@@ -58,26 +60,26 @@ This project documents the first working phase of my home network infrastructure
   - Used to manage TP-Link EAP670 AP
   - Served on LAN via Omada web GUI (port 8043)
 
-### Phase 3 – Wireless & Guest VLAN
+### Phase 3 — Wireless & Guest VLAN
 
 - Set up VLAN 14 in pfSense (Guest Network)
-- Trunked VLANs through switch port to Omada AP
-- Created isolated wireless SSID mapped to VLAN 14
+- Trunked VLANs through the switch port to the Omada AP
+- Created an isolated wireless SSID mapped to VLAN 14
 - Configured firewall rules in pfSense:
-  - Guests can access WAN only
+  - Guests can access the WAN only
   - Blocked access to LAN and Pi-hole
-- Verified DHCP lease and internet access for guests
-- Observed isolated traffic from personal network
+- Verified DHCP lease and internet access for guest clients
+- Confirmed guest traffic was isolated from the personal network
 
 ---
 
 ## Security Practices
 
-- Created distinct VLANs for guest vs personal network
+- Created distinct VLANs for guest vs. personal network traffic
 - Isolated Pi-hole to LAN access only
-- Disabled inter-VLAN routing from Guest → LAN
-- Assigned firewall rules by interface in pfSense
-- Reserved management services for trusted VLAN only
+- Disabled inter-VLAN routing from Guest to LAN
+- Assigned firewall rules per interface in pfSense
+- Reserved management services for the trusted VLAN only
 
 ---
 
@@ -98,13 +100,7 @@ This project documents the first working phase of my home network infrastructure
 
 ## Lessons Learned
 
-- Always reserve a static fallback IP for management
-- pfSense is extremely powerful when paired with LXC containers
-- VLANs and firewall rules are critical to proper isolation
-- Omada Controller offers enterprise-like wireless management
-
----
-
-## Resume Bullet (from this phase)
-
-> - Deployed full virtual home network lab with pfSense firewall, VLAN isolation, and internal services (DNS, WiFi controller) using Proxmox and LXC containers; implemented guest network segregation and trunked VLANs across Cisco infrastructure.
+- **Always set a static fallback IP for management access.** If you lock yourself out during a VLAN migration, a fallback IP on a known interface is your lifeline.
+- **pfSense + LXC containers is a powerful combination.** Running your firewall as a VM alongside lightweight containers keeps the footprint small and the flexibility high.
+- **VLANs without firewall rules are just labels.** Proper isolation requires explicit deny rules between segments — don't assume separation.
+- **Omada Controller punches above its weight.** For a home lab, it delivers enterprise-style wireless management without the enterprise price tag.

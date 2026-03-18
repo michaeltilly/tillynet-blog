@@ -6,7 +6,7 @@ categories: ["On-Premise Engineering Labs"]
 draft: false
 ---
 
-This guide documents the step-by-step process used to provision an [Authentik](https://goauthentik.io) identity provider server on a self-hosted Ubuntu Server using Docker and Docker Compose. This setup is suitable for advanced home lab environments and follows production-grade containerization practices.
+Centralized authentication is one of the most impactful upgrades you can make in a home lab. This post walks through how I deployed Authentik — a self-hosted identity provider — on Ubuntu Server using Docker Compose, including a setup wizard gotcha that cost me some troubleshooting time.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ This guide documents the step-by-step process used to provision an [Authentik](h
 
 ## Step 1: Install Docker Engine
 
-Follow the official Docker post-install guide to install and configure Docker for non-root use:
+I followed the official Docker post-install guide to install and configure Docker for non-root use.
 
 **Reference**: [Docker Post-install Guide](https://docs.docker.com/engine/install/linux-postinstall/)
 
@@ -53,7 +53,7 @@ newgrp docker
 
 ## Step 2: Install Docker Compose (Standalone)
 
-Authentik uses `docker-compose.yml` to manage multi-container services.
+Authentik uses `docker-compose.yml` to manage its multi-container services.
 
 **Reference**: [Docker Compose Install Guide](https://docker-docs.uclv.cu/compose/install/)
 
@@ -80,10 +80,10 @@ docker-compose version
 mkdir -p ~/authentik
 cd ~/authentik
 
-#Download the official docker-compose.yml
+# Download the official docker-compose.yml
 curl -o docker-compose.yml https://goauthentik.io/docker-compose.yml
 
-#Create an .env file to override confiugration values
+# Create an .env file to override configuration values
 cat <<EOF > .env
 AUTHENTIK_SECRET_KEY=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
@@ -96,7 +96,7 @@ EOF
 
 ## Step 4: Start Authentik Services
 
-Start the containers using Docker Compose:
+I started the containers using Docker Compose:
 
 ```bash
 docker-compose pull   # Pull latest images
@@ -105,9 +105,9 @@ docker-compose up -d  # Start in detached mode
 
 ---
 
-## Step 5: Access Web Interface
+## Step 5: Access the Web Interface
 
-Once running, access Authentik at:
+Once running, Authentik is available at:
 
 ```
 http://<your-server-ip>:9000
@@ -119,19 +119,25 @@ https://<your-server-ip>:9443
 
 ## Step 6: Initial Setup Wizard
 
-I had some trouble getting the initial setup wizard for Authentik to cooperate with me. The wizard would not let me setup the default `akdmin` account on a http connection. To resolve this issue do the following:
+I ran into trouble getting the initial setup wizard to cooperate. The wizard refused to let me create the default `akadmin` account over an HTTP connection. To work around this:
 
-Be sure that the docker container for authentik-server is listening on port 9443:
+First, confirm that the Authentik server container is listening on port 9443:
 
 ```bash
 sudo ss -tulpn | grep LISTEN
 ```
 
-Access the initial setup wizard using the link below:
+Then access the initial setup wizard over HTTPS:
 
 ```
 https://<your server's IP or hostname>:9443/if/flow/initial-setup/
 ```
+
+## Lessons Learned
+
+- **Use HTTPS for the setup wizard.** Authentik blocks initial account creation over plain HTTP — go straight to port 9443.
+- **Generate secrets at deploy time.** The `.env` file approach with `openssl rand` ensures unique keys per instance. Don't reuse secrets across environments.
+- **Docker Compose plugin vs. standalone binary.** Step 1 installs the Compose plugin (`docker compose`), but Authentik's docs reference the standalone `docker-compose` binary. Both work, but keep your invocation consistent.
 
 ---
 ## Related Posts

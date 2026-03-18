@@ -7,11 +7,11 @@ categories: ["Cloud Engineering Labs"]
 draft: false
 ---
 
-In this post, I'll walk through the complete process of establishing a Site-to-Site VPN connection between my on-premise pfSense firewall and AWS, creating a true hybrid cloud environment. This project demonstrates enterprise-grade network integration, secure tunnel establishment, and Infrastructure as Code principles.
+Connecting a home lab to AWS over a Site-to-Site VPN is one of the most practical hybrid cloud exercises you can do -- it touches IPsec, routing, Terraform, and real-world firewall configuration all in one project. In this post, I walk through every step of establishing a VPN between my on-premise pfSense firewall and AWS.
 
 ## Project Overview
 
-The goal was to extend my existing home lab network (TillyNet) to AWS, enabling seamless communication between on-premise resources and cloud workloads. This creates opportunities for hybrid applications, cloud bursting, and distributed infrastructure management.
+My goal was to extend my home lab network (TillyNet) into AWS, enabling seamless communication between on-premise resources and cloud workloads over encrypted IPsec tunnels.
 
 ### Architecture Summary
 
@@ -45,7 +45,7 @@ On-Premise Network (TillyNet)           AWS Cloud Environment
 
 ## Phase 1: AWS Infrastructure Deployment
 
-The first phase involves creating the AWS networking infrastructure using Terraform. This approach ensures reproducible, version-controlled infrastructure that can be easily modified and redeployed.
+First, I deployed the AWS networking infrastructure using Terraform for reproducibility and version control.
 
 ### Terraform Project Structure
 
@@ -125,7 +125,7 @@ variable "private_subnet_cidr" {
 }
 ```
 
-The validation blocks ensure that input values meet expected formats and constraints, preventing common configuration errors during deployment.
+The validation blocks catch bad inputs before Terraform even starts planning -- saves a lot of debugging time.
 
 ### Local Values and Data Sources
 
@@ -194,7 +194,7 @@ data "aws_ami" "amazon_linux" {
 
 ### Core Network Infrastructure
 
-The `main.tf` file contains the primary infrastructure definitions. Here's the VPC and networking setup:
+Here is the VPC and networking setup in `main.tf`:
 
 ```hcl
 # main.tf - Primary infrastructure resources
@@ -284,7 +284,7 @@ resource "aws_nat_gateway" "hybrid_nat" {
 
 ### Routing Configuration
 
-Proper routing ensures traffic flows correctly between subnets and to the internet:
+Routing is critical -- without the right route tables, traffic has nowhere to go:
 
 ```hcl
 # Public Route Table - Directs traffic to Internet Gateway
@@ -333,7 +333,7 @@ resource "aws_route_table_association" "private_rta" {
 
 ### VPN Infrastructure Components
 
-The Site-to-Site VPN requires three AWS components: Customer Gateway, Virtual Private Gateway, and the VPN Connection itself.
+The VPN requires three AWS components: a Customer Gateway (representing pfSense), a Virtual Private Gateway (the AWS-side endpoint), and the VPN Connection itself.
 
 ```hcl
 # Customer Gateway - Represents the on-premise pfSense firewall
@@ -401,7 +401,7 @@ resource "aws_vpn_gateway_route_propagation" "private_propagation" {
 
 ### Test Instance for Connectivity Validation
 
-To validate the hybrid connection, I deployed a test EC2 instance with appropriate security configurations:
+I deployed a test EC2 instance in the private subnet to validate connectivity through the VPN:
 
 ```hcl
 # Security Group for test instance - Allows connectivity from on-premise networks
@@ -535,9 +535,9 @@ public_subnet_cidr  = "10.1.1.0/24"
 private_subnet_cidr = "10.1.2.0/24"
 ```
 
-## Phase 2: AWS Infrastructure Deployment
+## Phase 2: Deploying the AWS Infrastructure
 
-With the Terraform configuration complete, I deployed the AWS infrastructure:
+With the Terraform configuration complete, I deployed everything:
 
 ### Deployment Process
 
@@ -557,7 +557,7 @@ terraform apply
 
 ### Deployment Verification
 
-After successful deployment, I verified the infrastructure:
+After deployment, I verified the infrastructure:
 
 ```bash
 # Retrieve VPN connection details for pfSense configuration
@@ -582,11 +582,11 @@ The deployment created:
 
 ## Phase 3: pfSense IPsec Configuration
 
-With AWS infrastructure deployed, I configured the pfSense firewall to establish the IPsec tunnels.
+With the AWS side ready, I configured pfSense to establish the IPsec tunnels.
 
 ### Phase 1 (IKE) Configuration
 
-For each tunnel, I created Phase 1 entries in pfSense:
+For each tunnel, I created a Phase 1 entry in pfSense:
 
 **Navigation**: VPN > IPsec > Add P1
 
@@ -653,7 +653,7 @@ I replicated this configuration for Tunnel 2 with the appropriate endpoint addre
 
 **Navigation**: Firewall > Rules > IPsec
 
-I created a rule to allow all traffic through the VPN tunnels (this rule will later be more restrictive but for now this allowed testing traffic through the tunnel):
+I created a permissive rule for initial testing (I plan to tighten this later):
 
 - **Action**: Pass
 - **Interface**: IPsec
@@ -729,25 +729,19 @@ ssh ec2-user@[AWS_EC2_INSTANCE_IP]
 curl http://[AWS_EC2_INSTANCE_IP]
 ```
 
-## Troubleshooting and Resolution
+## Troubleshooting
 
-### Challenge 1: Route Table Issues
+### pfSense Route Table Issues
 
-**Problem**: pfSense wasn't automatically creating routes to AWS networks despite established tunnels.
+pfSense was not creating routes to AWS networks even though the tunnels showed "Established." The fix was adding an "Automatically ping host" parameter in Phase 2 pointing to the AWS VPC gateway (10.1.0.1). This keeps the route active through the tunnel.
 
-**Solution**: Added "Automatically ping host" parameter in Phase 2 configuration pointing to AWS VPC gateway (10.1.0.1). This forces pfSense to maintain active routes through the tunnel.
+### Security Group Blocking Pings
 
-### Challenge 2: AWS Security Group Configuration
+My initial ping tests failed because the default security groups did not allow ICMP from on-premise ranges. I had to create explicit rules for ICMP and SSH from my home network CIDRs.
 
-**Problem**: Initial ping tests failed due to restrictive default security groups.
+### Weak Encryption Defaults
 
-**Solution**: Created explicit security group rules allowing ICMP and SSH traffic from on-premise network ranges to AWS resources.
-
-### Challenge 3: Tunnel Authentication Issues
-
-**Problem**: Initial configuration used weaker encryption (SHA-1, DH Group 2).
-
-**Solution**: Updated both AWS VPN connection and pfSense configuration to use stronger parameters:
+I initially configured weaker encryption (SHA-1, DH Group 2) and later upgraded both sides to match:
 
 - IKEv2 instead of IKEv1
 - AES-256 instead of AES-128
@@ -824,27 +818,11 @@ curl http://[AWS_EC2_INSTANCE_IP]
 
 ## Conclusion
 
-This project successfully established a production-grade Site-to-Site VPN between my on-premise pfSense infrastructure and AWS, creating a true hybrid cloud environment. The implementation demonstrates several key technical concepts:
+This project gave me a working hybrid cloud environment that I now use as the foundation for everything else in my lab. A few takeaways:
 
-**Infrastructure as Code**: Using Terraform ensured reproducible, version-controlled infrastructure deployment with proper validation and documentation.
+1. **Plan your IP addressing first.** Overlapping CIDRs between on-premise and AWS will ruin your day. I mapped out every VLAN and subnet before writing a single line of Terraform.
+2. **Match encryption on both sides exactly.** The VPN will not come up if there is even a slight mismatch between AWS tunnel options and pfSense Phase 1/Phase 2 settings.
+3. **Test systematically.** Start with ICMP, then SSH, then application-level traffic. Each layer reveals different problems.
+4. **The "Automatically ping host" trick is essential for pfSense.** Without it, routes disappear and the tunnel appears up but passes no traffic.
 
-**Network Security**: The solution implements enterprise-grade encryption and access controls while maintaining network segmentation and the principle of least privilege.
-
-**Hybrid Architecture**: The established connection enables seamless communication between on-premise and cloud resources, opening possibilities for distributed applications, cloud bursting, and hybrid backup strategies.
-
-**Operational Excellence**: Comprehensive monitoring, logging, and documentation support ongoing management and troubleshooting.
-
-The resulting infrastructure provides a solid foundation for hybrid cloud applications and demonstrates practical implementation of enterprise networking concepts in a home lab environment. This setup now enables exploration of advanced hybrid scenarios including cross-environment authentication, distributed databases, and multi-cloud architectures.
-
-### Key Takeaways
-
-1. **Planning is Critical**: Proper IP address planning prevents conflicts and simplifies routing configuration.
-    
-2. **Security by Design**: Implementing strong encryption and access controls from the beginning is easier than retrofitting security later.
-    
-3. **Testing Methodology**: Systematic testing from basic connectivity to application-level validation ensures reliable operation.
-    
-4. **Documentation Value**: Thorough documentation accelerates troubleshooting and enables knowledge sharing.
-    
-
-This hybrid cloud setup now serves as a platform for continued learning and experimentation with enterprise cloud technologies and networking concepts.
+This setup now serves as my platform for everything from cross-environment DNS resolution to hybrid application deployments.

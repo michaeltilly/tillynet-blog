@@ -6,21 +6,23 @@ categories: ["On-Premise Engineering Labs"]
 draft: false
 ---
 
-# 02 - Migrating to a Dedicated Management VLAN (VLAN 99)
+# 02 — Migrating to a Dedicated Management VLAN (VLAN 99)
 
-This phase documents the migration of all core management infrastructure to an isolated VLAN (VLAN 99) for improved security, network segmentation, and long-term scalability. This included Proxmox GUI access, Omada Controller LXC, and strict firewall rules enforced via pfSense.
+Leaving management interfaces on the default VLAN is a security risk most home labs never address. In this post, I migrate Proxmox, Omada Controller, and VPN access to a dedicated VLAN 99, locking down admin access with pfSense firewall rules.
+
+This phase documents the migration of all core management infrastructure to an isolated VLAN (VLAN 99) for improved security, network segmentation, and long-term scalability.
 
 ---
 
 ## Goals
 
-- Remove critical services from default/native VLAN
+- Remove critical services from the default/native VLAN
 - Assign a dedicated, isolated VLAN (VLAN 99) for:
   - Proxmox management GUI
   - Omada Controller (LXC)
-- Trunk management VLAN through switch to Proxmox
-- Implement firewall rules to allow remote admin access only
-- Preserve service availability during transition
+- Trunk the management VLAN through the switch to Proxmox
+- Implement firewall rules to restrict admin access
+- Preserve service availability during the transition
 
 ---
 
@@ -73,3 +75,4 @@ auto vmbr1.99
 iface vmbr1.99 inet static
     address <management_ip>/24
     gateway <management_gateway>
+```

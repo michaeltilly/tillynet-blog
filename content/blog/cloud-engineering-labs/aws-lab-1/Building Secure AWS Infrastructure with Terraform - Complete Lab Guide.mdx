@@ -6,39 +6,25 @@ cloud_provider: "AWS"
 categories: ["Cloud Engineering Labs"]
 draft: false
 ---
-## Overview
 
-This document summarizes the technical work completed to build, configure, and automate a secure AWS VPC lab using Terraform. It covers manual and automated infrastructure deployment steps, with detailed explanations for each Terraform configuration component, designed to help replicate the setup at any time in the future.
-
----
+If you want to learn Terraform by building something real, this post is for you. I walk through every file in a complete Terraform project that deploys a segmented AWS VPC with public and private subnets, EC2 instances, NAT Gateway, security groups, and VPC Flow Logs -- all from scratch.
 
 ## Objectives
 
-- Build a segmented AWS VPC network with public and private subnets.
-    
-- Launch EC2 instances in both public and private subnets.
-    
-- Secure access using Security Groups.
-    
-- Enable VPC Flow Logs for traffic monitoring.
-    
-- Manage the infrastructure using Terraform, with variables and data sources referencing existing AWS resources.
-    
+- Build a segmented AWS VPC with public and private subnets
+- Launch EC2 instances in both subnets (bastion host + private backend)
+- Secure access using Security Groups
+- Enable VPC Flow Logs for traffic monitoring
+- Manage everything with Terraform, using variables and data sources for flexibility
 
 ---
 
 ## Prerequisites
 
-- An AWS Free Tier account.
-    
-- AWS CLI installed and configured (`aws configure`) with IAM user access keys.
-    
-- Terraform installed on the local workstation.
-    
-- An existing VPC created manually in AWS.
-    
-- An EC2 SSH Key Pair created in AWS (with the `.pem` file downloaded and stored securely).
-    
+- An AWS Free Tier account
+- AWS CLI installed and configured (`aws configure`) with IAM user access keys
+- Terraform installed on the local workstation
+- An EC2 SSH Key Pair created in AWS (with the `.pem` file downloaded and stored securely)
 
 ---
 
@@ -71,22 +57,13 @@ provider "aws" {
 }
 ```
 
-**Explanation:**
-
-- Defines the AWS provider Terraform will use.
-    
-- Sets the default AWS region to `us-west-1`. This can be adjusted or turned into a configurable variable if needed.
-    
+This defines the AWS provider and sets the default region. I hardcoded `us-east-1` here, but you could easily make this a variable.
 
 ---
 
 ## variables.tf
 
-The variables.tf file defines **all the input variables** your Terraform configuration uses, making it:
-
-- Flexible
-- Resusable
-- Easier to manage across environments (dev, staging, prod) By declaring variables here we avoid hardcoding values in `main.tf` or other resource files.
+The `variables.tf` file defines all the input variables, making the configuration flexible, reusable, and easier to manage across environments (dev, staging, prod). By declaring variables here, I avoid hardcoding values in `main.tf` or other resource files.
 
 ```hcl
 # variables.tf - defines and validates variables
@@ -160,7 +137,7 @@ variable "home_ip" {
 }
 
 # Used for tagging AWS resources for identification
-# Helps track whick resources belong to whick project
+# Helps track which resources belong to which project
 variable "project_name" {
   description = "Name of the project for resource tagging"
   type        = string
@@ -181,7 +158,7 @@ variable "environment" {
 }
 
 # Controls the size of the EC2 instances
-# Below is freet-tier eligible
+# Below is free-tier eligible
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
@@ -189,7 +166,7 @@ variable "instance_type" {
 }
 
 # Controls whether DNS hostnames is enabled for the VPC
-# Belowis set to true - best practice
+# Below is set to true - best practice
 variable "enable_dns_hostnames" {
   description = "Enable DNS hostnames in the VPC"
   type        = bool
@@ -205,12 +182,7 @@ variable "enable_dns_support" {
 }
 ```
 
-**Explanation:**
-
-- Defines all required input variables, including the VPC, subnet CIDRs, key pair name, and the home public IP address for secure SSH access.
-- Modular and adaptable to different setups.
-- Safter through built-in validation blocks.
-- Easier to manage across environments by externalizing critical settings.
+Each variable includes validation blocks to catch configuration errors before deployment. This is safer than discovering bad inputs at apply time, and makes the whole project portable across environments.
 
 ---
 
@@ -229,25 +201,18 @@ availability_zone   = "us-west-1a"
 instance_type       = "t2.micro"
 ```
 
-**Explanation:**
-
-- Provides actual values for the variables defined in `variables.tf`.
-    
-- This file is automatically loaded by Terraform and should be excluded from version control for sensitive values.
-    
+This file provides actual values for the variables defined in `variables.tf`. Terraform loads it automatically. Keep this out of version control since it contains sensitive values like your public IP.
 
 ---
 
 ## data.tf
 
-This file defines Terraform data sources, which allows the ability to query AWS for existing dynamic information that is not created or managed directly, such as available regions, caller identity, AMI IDs, or availability zones.
-
-These values can be used throughout Terraform configurations for dynamic, up-to-date references.
+Data sources let Terraform query AWS for dynamic information -- things like the current region, account identity, available AZs, and the latest AMI IDs. I use these throughout the configuration instead of hardcoding values.
 
 ```hcl
 # data.tf - Centralize data sources
 # Fetches the AWS region that Terraform is currently operating in
-# Useful to reference the region dynamically in resources or outputs without hardcoding var.region everwhere
+# Useful to reference the region dynamically in resources or outputs without hardcoding var.region everywhere
 data "aws_region" "current" {}
 
 # Returns details about the active AWS identity: AWS account ID, Amazon Resource Name (ARN), User ID
@@ -279,18 +244,13 @@ data "aws_ami" "amazon_linux" {
 }
 ```
 
-**Explanation:**
-
-- Uses Terraform's `data` sources to reference existing AWS resources without Terraform managing or creating them.
-- Makes Terraform configuration more dynamic and adaptable.
-- Reduce hardcoding of values that might change between regions, accounts, or over time.
-- Help ensure that the infrastructure always targets the correct, most up-to-date AWS resources.
+Data sources keep the configuration dynamic and portable. The AMI lookup is especially useful -- it always grabs the latest Amazon Linux 2 image, so I never have to manually update AMI IDs when deploying to a new region.
 
 ---
 
 ## locals.tf
 
-The `locals` block in Terrraform defines **computed values** or **constants** that can be reused throughout the configuration. The **computed values** and **constants** help reduce repetition, centralize logic, and make configurations easier to maintain. These are like reusable variables, but they can include computed or derived values (not just user-provided inputs).
+The `locals` block defines computed values and constants that I reuse throughout the configuration. Think of them as internal variables that can include derived values -- not just user-provided inputs.
 
 ```hcl
 # locals.tf - Define reusable values and computed tags
@@ -316,21 +276,13 @@ locals {
 }
 ```
 
-**Explanation:**
-
-- Defines local values to standardize instance naming across the configuration.
-- Can apply the `local.common_tags` to all taggable resources, ensuring consistency across infrastructure.
-- Code consistency (single place to define tag maps or name patterns)
-- Maintainability (change once, propagate everywhere)
-- Readability (clear, descriptive references)
+The `common_tags` map and `name_prefix` string are the workhorses here. I apply them to every resource, which keeps naming consistent and makes cost allocation straightforward. Change the project name or environment once, and it propagates everywhere.
 
 ---
 
 ## main.tf
 
-This is the **core infrastructure definition** file in Terraform. It contains all the resource blocks to define and build AWS network, security, compute resources, logging, and permissions.
-
-**Key sections explained:**
+This is the core infrastructure file -- it contains all the resource blocks that build the actual AWS environment. I'll walk through each section.
 
 ### VPC Creation
 
@@ -345,8 +297,7 @@ resource "aws_vpc" "main" {
 }
 ```
 
-- Creates a new VPC using the specified CIDR block and DNS settings.
-- Applies consistent tags merged from local common tags.
+Creates the VPC with DNS settings enabled and applies consistent tags from the locals block.
 
 ### Internet Gateway
 
@@ -359,7 +310,7 @@ resource "aws_internet_gateway" "main" {
 }
 ```
 
-- Attaches an internet gateway to the new VPC, enabling internet access for public resources.
+Attaches an Internet Gateway to the VPC, enabling internet access for public resources.
 
 ### Subnets
 
@@ -390,8 +341,7 @@ resource "aws_subnet" "private" {
 }
 ```
 
-- Creates a public subnet and a private subnet in the specified availability zone.
-- The public subnet allows public IP assignments; the private one does not.
+The public subnet auto-assigns public IPs on launch; the private subnet does not. This is the foundation of the network segmentation.
 
 ### Elastic IP and NAT Gateway
 
@@ -420,7 +370,7 @@ resource "aws_nat_gateway" "nat" {
 }
 ```
 
-- Allocates a static Elastic IP and attaches it to a NAT Gateway in the public subnet, allowing private subnet instances to access the internet outbound.
+The Elastic IP gives the NAT Gateway a static outbound IP. The NAT Gateway sits in the public subnet and allows private subnet instances to reach the internet (for updates, API calls, etc.) without being directly accessible from the outside.
 
 ### Route Tables
 
@@ -468,12 +418,7 @@ resource "aws_route_table_association" "private_assoc" {
 }
 ```
 
-- Creates a public route table with a default route to the internet gateway.
-    
-- Creates a private route table with a default route to the NAT gateway.
-    
-- Associates the correct route table with each subnet.
-    
+The public route table sends `0.0.0.0/0` traffic to the Internet Gateway; the private route table sends it to the NAT Gateway instead. Each subnet gets associated with its respective route table.
 
 ### Security Groups
 
@@ -543,10 +488,7 @@ resource "aws_security_group" "private_sg" {
 }
 ```
 
-- Public SG allows SSH access only from the specified home IP.
-    
-- Private SG allows SSH access only from the public instance SG (used as a bastion host).
-    
+The public security group only allows SSH from my home IP. The private security group only allows SSH from instances in the public security group -- this is the bastion host pattern. Note the `create_before_destroy` lifecycle rule, which prevents downtime during security group updates.
 
 ### EC2 Instances
 
@@ -591,12 +533,7 @@ resource "aws_instance" "private_ec2" {
 }
 ```
 
-- Launches an EC2 instance in the public subnet (Amazon Linux 2), serving as a bastion or jump host.
-    
-- Launches an EC2 instance in the private subnet (Amazon Linux 2), serving as a backend node.
-    
-- Both use user data scripts (`public-userdata.sh`, `private-userdata.sh`) and consistent tagging.
-    
+The public instance serves as a bastion/jump host; the private instance is the backend. Both use `templatefile()` to inject the hostname into their respective user data scripts at deploy time.    
 
 ### CloudWatch Log Group for VPC Flow Logs
 
@@ -612,7 +549,7 @@ resource "aws_cloudwatch_log_group" "vpc_logs" {
 }
 ```
 
-- Creates a CloudWatch log group to hold the VPC Flow Logs, with a 7-day retention period.
+This CloudWatch log group stores the VPC Flow Logs with a 7-day retention period -- long enough for troubleshooting without accumulating unnecessary costs.
 
 ### IAM Role and Policy for VPC Flow Logs
 
@@ -662,7 +599,7 @@ resource "aws_iam_role_policy" "flow_logs_policy" {
 }
 ```
 
-- Creates an IAM role with permissions for VPC Flow Logs to push data to CloudWatch Logs.
+The IAM role uses a trust policy that only allows the `vpc-flow-logs.amazonaws.com` service to assume it. The attached policy grants just enough permissions to write to the specific log group.
 
 ### Enable VPC Flow Logs
 
@@ -681,19 +618,13 @@ resource "aws_flow_log" "vpc_flow_logs" {
 }
 ```
 
-- Enables detailed traffic logging on the VPC, writing all traffic data (accepted and rejected) to CloudWatch Logs.
-
-**Explanation:**
-
-- Uses `locals` for consistent naming and tags.
-- Applies merge patterns for reusable tag blocks.
-- Includes lifecycle rules (like create_before_destroy) for safer updates.
+This captures all traffic (accepted and rejected) flowing through the VPC. Invaluable for debugging security group rules and diagnosing connectivity issues.
 
 ---
 
 ## outputs.tf
 
-The `outputs.tf` file defines what Terraform will print after `terraform apply` finishes. This helps to get key resource, IDs, IPs, and metadata. It makes it easier to connect or interact with deployed resources. It can also feed outputs into other Terraform modules or systems.
+The `outputs.tf` file defines what Terraform prints after `terraform apply` finishes -- key resource IDs, IPs, and ready-to-use SSH commands. These outputs also feed into other Terraform modules if you decide to compose this with additional infrastructure later.
 
 ```hcl
 # outputs.tf
@@ -790,22 +721,13 @@ output "ssh_commands" {
 }
 ```
 
-**Explanation:**
-
-- Well-organized and grouped outputs.
-- Includes useful operational details (IPs, IDs, names)
-- Provides ready-to-use SSH access tips
-
-**Possible Improvements**
-
-- Add sensitive = true to hide any sensitive values (like internal IPs or commands) from Terraform CLI output.
-- Provide outputs formatted as maps or lists. Will be useful for scaling to multiple instances or subnets.
+The SSH command outputs are especially handy -- I can copy-paste them directly after deployment. One improvement I would make next time: add `sensitive = true` to hide internal IPs from CLI output, and format outputs as maps for easier scaling to multiple instances.
 
 ---
 
 ## User Data Scripts
 
-User data scripts are executed when EC2 instances boot for the first time. They provide a way to customize the instance configuration, install software, and set up initial system state. Both the public and private instances use bash scripts that perform similar initialization tasks.
+User data scripts run on first boot to customize each instance. Both scripts follow the same pattern: update packages, install tools, set the hostname, install the CloudWatch agent, and create an identifying MOTD.
 
 ### public-userdata.sh
 
@@ -835,15 +757,7 @@ EOF
 echo "$(date): Public instance ${hostname} started successfully" >> /var/log/terraform-deployment.log
 ```
 
-**Explanation:**
-
-- Updates system packages to latest versions for security.
-- Installs essential system administration tools (htop for process monitoring, tree for directory visualization, wget and curl for downloads).
-- Sets a dynamic hostname using the variable passed from Terraform's templatefile function.
-- Configures the hostname in /etc/hosts for proper local name resolution.
-- Installs the CloudWatch agent for monitoring and log collection.
-- Creates a Message of the Day (MOTD) that displays when users SSH into the instance, clearly identifying it as a bastion host.
-- Logs the successful startup to a local file for troubleshooting and audit purposes.
+The `${hostname}` variable gets substituted by Terraform's `templatefile` function at deploy time, so each instance gets a unique, identifiable hostname.
 
 ### private-userdata.sh
 
@@ -873,75 +787,28 @@ EOF
 echo "$(date): Private instance ${hostname} started successfully" >> /var/log/terraform-deployment.log
 ```
 
-**Explanation:**
+Same approach as the public script, but with a distinct MOTD so I immediately know which instance I've landed on when SSH-ing in. The `base64encode(templatefile(...))` pattern in `main.tf` handles variable substitution and the encoding that AWS expects for user data.
 
-- Performs identical system initialization tasks as the public instance script.
-- Uses the same package management and tool installation approach.
-- Sets the hostname dynamically using the Terraform-provided variable.
-- Installs CloudWatch agent for consistent monitoring across both instances.
-- Creates a distinct MOTD that identifies this as a private instance accessible only through the bastion host.
-- Logs startup information to the same log file format for consistent operational tracking.
+---
 
-### Integration with Terraform
+## Deployment Workflow: Terraform Commands
 
-Both user data scripts are referenced in the main.tf file using Terraform's templatefile function:
+The standard workflow:
 
-```hcl
-user_data = base64encode(templatefile("${path.module}/user-data/public-userdata.sh", {
-  hostname = "${local.name_prefix}-public"
-}))
+```bash
+terraform init       # Download providers, initialize backend
+terraform fmt        # Auto-format .tf files
+terraform validate   # Check syntax and logic
+terraform plan       # Preview what will be created
+terraform apply      # Deploy the infrastructure
+terraform destroy    # Tear it all down when finished
 ```
 
-The templatefile function allows Terraform to substitute variables into the scripts at deployment time. The hostname variable is populated with the project name and environment prefix, ensuring consistent naming across the infrastructure. The base64encode function is required because AWS expects user data to be base64 encoded.
-
-These scripts establish a baseline configuration for both instances, ensuring they have the necessary tools for administration and monitoring while clearly identifying their role in the infrastructure through the welcome messages.
-
 ---
 
-## Deployment Workflow Utilizing Terraform Commands
+## Deployment Workflow: PowerShell Script
 
-1. Initialize the Terraform project:
-    
-    ```hcl
-    terraform init
-    ```
-    
-2. Format the configuration:
-    
-    ```hcl
-    terraform fmt
-    ```
-    
-3. Validate the configuration:
-    
-    ```hcl
-    terraform validate
-    ```
-    
-4. Review the execution plan:
-    
-    ```hcl
-    terraform plan
-    ```
-    
-5. Apply the configuration to deploy resources:
-    
-    ```hcl
-    terraform apply
-    ```
-    
-6. When finished, clean up resources:
-    
-    ```hcl
-    terraform destroy
-    ```
-    
-
----
-
-## Deployment Workflow Utilizing PowerShell Script
-
-This script is designed to automate and safeguard the Terraform deployment workflow. It ensures prerequisites, verifies configuration, assists the user, and executes Terraform commands in a structured, safe order.
+I also wrote a PowerShell script to automate the full workflow with safety checks. It verifies prerequisites, validates configuration, prompts for confirmation, and runs each Terraform command in sequence.
 
 ```powershell
 # Terraform Deployment Script
@@ -1191,120 +1058,22 @@ Write-Host "- Error about permissions: Ensure your AWS user has admin rights" -F
 Write-Host "`nDeployment script completed!" -ForegroundColor Green
 ```
 
-### 1. Prerequisite Checks
+### What the Script Does
 
-Checks if:
+1. **Prerequisite checks** -- verifies Terraform, AWS CLI, and valid credentials are present before running anything
+2. **Project directory validation** -- confirms all `.tf` files and user data scripts exist; generates a `terraform.tfvars` template if missing
+3. **Public IP detection** -- fetches your current public IP via `ifconfig.me` and warns if the placeholder is still in `terraform.tfvars`
+4. **Terraform deployment** -- runs `init`, `validate`, `fmt`, `plan`, prompts for confirmation, then `apply`
+5. **Post-deployment output** -- displays infrastructure details, SSH commands, and AWS Console links
 
-- Terraform is installed (`terraform --version`)
-- AWS CLI is installed (`aws --version`)
-- AWS CLI credentials are configured (`aws sts get-caller-identity`)
-
-If any of these checks fail, the script exits early to prevent wasted runs.
-
-- Prevents runtime errors later by confirming the local environment is ready.
-
-### 2. Project Directory Setup
-
-- Checks if you're inside the `terraform-vpc-lab` directory.
-- If you're in the `user-data` subfolder, moves up one level.
-- Verifies critical Terraform files are present (`main.tf`, `variables.tf`, etc.).
-- Creates a `terraform.tfvars` template if it doesn't exist, reminding the user to fill in actual values.
-
-Prevents mistakes from running Terraform in the wrong folder or with missing config.
-
-### 3. Public IP Check
-
-- Retrieves the users current public IP using an external API `https://ifconfig.me/ip`.
-- Alerts if the placeholder `203.0.113.1/32` is still in your `terraform.tfvars`.
-
-Ensures Security Group `home_ip` is set properly thus allowing SSH in.
-
-### 4. Terraform Deployment Steps
-
-Uses a helper function `Invoke-TerraformCommand` that:
-
-- Runs a Terraform command.
-    
-- Tracks execution time.
-    
-- Checks success or failure.
-    
-- Provides colorful, clear user feedback.
-    
-
-Commands it runs in sequence:
-
-1. `terraform init` → initializes backend + providers.
-    
-2. `terraform validate` → checks configuration syntax.
-    
-3. `terraform fmt` → formats the Terraform code.
-    
-4. `terraform plan -out=tfplan` → creates an executable plan file.
-    
-5. Prompts the user:
-    
-    - Explicit user confirmation before applying.
-6. `terraform apply tfplan` → deploys the infrastructure.
-    
-7. After apply:
-    
-    - Shows `terraform output`.
-        
-    - Cleans up the `tfplan` file.
-        
-    - Lists helpful AWS console links.
-        
-
-Automates best practices and reduces human error in the apply phase.
-
-### 5. Helpful Commands + Troubleshooting
-
-At the end, it prints:
-
-- Common Terraform CLI commands for post-deployment work.
-    
-- Troubleshooting tips for:
-    
-    - Credential issues
-        
-    - Region mismatches
-        
-    - Key pair errors
-        
-    - Permissions problems
-        
-
-Gives the user guidance on what to do after deployment or if something goes wrong.
-
-### Why Utilize PowerShell Deployment
-
-- Clear, user-friendly feedback using color and prompts.
-- Safety checks to prevent misconfigured runs.
-- Scripted generation of tfvars template to help beginners.
-- Modular Terraform command function for reusability.
-- Includes time tracking and success/failure detection.
-
-### Potential Improvements
-
-Add error handling for:
-
-- Network timeouts when fetching public IP.
-- `terraform` command not found inside restricted environments.
-- Support for custom -var-file input if multiple environments (dev, prod).
-- Support an optional `terraform destroy` flag or mode for teardown automation.
-- Log output to a file for post-run audit.
+The `Invoke-TerraformCommand` helper function tracks execution time and provides color-coded pass/fail feedback for each step. If anything fails, the script exits early instead of blindly continuing.
 
 ---
 
-## Best Practices and Notes
+## Best Practices and Lessons Learned
 
-- Use environment variables or `terraform.tfvars` to avoid hardcoding sensitive values (like your home IP) in `.tf` files.
-    
-- Always run `terraform plan` before `apply` to review changes.
-    
-- Ensure your AMI IDs are up-to-date for your target region.
-    
-- Keep `.tfstate` files secure, especially when using sensitive outputs.
-    
-- Use `.gitignore` to exclude sensitive files if committing the project to version control.
+- **Never hardcode secrets** -- use `terraform.tfvars` or environment variables for sensitive values like your home IP
+- **Always plan before apply** -- `terraform plan` has saved me from unintended changes more than once
+- **Use dynamic AMI lookups** -- hardcoded AMI IDs break when you switch regions
+- **Secure your state file** -- `.tfstate` can contain sensitive outputs; treat it like a credential
+- **Git-ignore everything sensitive** -- add `terraform.tfvars`, `*.tfstate`, and `*.tfstate.backup` to `.gitignore`

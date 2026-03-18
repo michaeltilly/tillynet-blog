@@ -8,7 +8,7 @@ draft: false
 
 ## Overview
 
-This post documents how I implemented a production-style Public Key Infrastructure (PKI) inside my Samba 4 Active Directory (AD) lab. The project simulates how enterprise environments separate certificate authority responsibilities to promote security and manageability. I built a trust chain starting with an offline Root CA, promoted my Samba DC as an Intermediate CA, and automated service certificate signing for applications like Traefik and Authentik.
+A flat, single-tier CA works until it doesn't -- and in an enterprise environment, it never would. In this post, I restructured my lab's certificate infrastructure into a proper two-tier PKI: an offline Root CA that signs an Intermediate CA running on my Samba DC. This mirrors how production environments separate CA responsibilities for security and manageability, and it gave me a foundation for issuing trusted service certificates to Traefik, Authentik, and LDAPS.
 
 ---
 
@@ -17,11 +17,8 @@ This post documents how I implemented a production-style Public Key Infrastructu
 In enterprise networks, it's a best practice to:
 
 - Keep the **Root Certificate Authority (CA)** offline to minimize risk
-    
 - Delegate signing authority to an **Intermediate CA**
-    
 - Sign service certificates (LDAPS, HTTPS, etc.) from the Intermediate
-    
 
 Initially, my Samba AD DC handled both Root CA and service cert issuance, which is not secure long-term. This project restructures that into a hardened, tiered architecture.
 
@@ -41,7 +38,7 @@ Root CA (Offline)
 
 ## Phase 1: Offline Root CA
 
-This was done on a separate offline VM or system.
+I did this on a separate offline VM.
 
 ```bash
 mkdir -p ~/rootCA/{certs,crl,newcerts,private,csr}
@@ -74,7 +71,7 @@ openssl req -new -key intermediate.key.pem \
   -subj "/C=US/ST=State/O=Lab/OU=CA/CN=Intermediate CA"
 ```
 
-Transfer the CSR to the offline Root CA host, then:
+Transfer the CSR to the offline Root CA host, then sign it:
 
 ```bash
 openssl ca -config openssl_root.cnf \
@@ -84,19 +81,19 @@ openssl ca -config openssl_root.cnf \
   -out certs/intermediate.cert.pem
 ```
 
-Create the chain:
+Create the chain file:
 
 ```bash
 cat certs/intermediate.cert.pem certs/rootCA.cert.pem > certs/ca-chain.cert.pem
 ```
 
-Transfer intermediate.cert.pem and ca-chain.cert.pem back to the Samba server.
+Transfer `intermediate.cert.pem` and `ca-chain.cert.pem` back to the Samba server.
 
 ---
 
 ## Samba TLS Configuration
 
-Save the following files:
+Place the following files on the Samba DC:
 
 ```
 /usr/local/samba/private/tls/
@@ -121,7 +118,7 @@ Restart the Samba service:
 systemctl restart samba-ad-dc
 ```
 
-Test it:
+Verify LDAPS is working:
 
 ```bash
 openssl s_client -connect samba.domain.lan:636 -showcerts
@@ -205,7 +202,7 @@ Usage:
 
 ### Problem
 
-The authentik outpost container failed to connect due to:
+The Authentik outpost container failed to connect with:
 
 ```
 tls: failed to verify certificate: x509: certificate signed by unknown authority
@@ -213,7 +210,7 @@ tls: failed to verify certificate: x509: certificate signed by unknown authority
 
 ### Solution: Dockerfile CA Injection
 
-Create a Dockerfile to embed the Root CA into the outpost container:
+I created a Dockerfile to embed the Root CA into the outpost container:
 
 ```
 FROM ghcr.io/goauthentik/proxy:latest
@@ -230,7 +227,7 @@ Build the container:
 docker compose build --no-cache authentik-outpost
 ```
 
-Verify it inside the running container:
+Verify trust inside the running container:
 
 ```bash
 docker exec -it traefik-authentik-outpost bash
@@ -247,20 +244,26 @@ Verify return code: 0 (ok)
 
 ## Active Directory GPO
 
-To deploy trust across my Windows clients, I used Group Policy to distribute the **Root CA certificate only**, not the entire chain. This prevents clients from implicitly trusting intermediate certificates not issued by the Root.
+To deploy trust across my Windows clients, I used Group Policy to distribute the **Root CA certificate only** -- not the entire chain. This prevents clients from implicitly trusting intermediate certificates not issued by the Root.
 
 To deploy:
 
 - Open **Group Policy Management Console**
-    
 - Create or edit a GPO
-    
 - Navigate to: `Computer Configuration > Policies > Windows Settings > Security Settings > Public Key Policies > Trusted Root Certification Authorities`
-    
 - Import `rootCA.cert.pem`
-    
 
-After syncing (`gpupdate /force`), all domain-joined clients should trust the Root.
+After syncing (`gpupdate /force`), all domain-joined clients trust the Root CA.
+
+---
+
+## Lessons Learned
+
+- **Keep the Root CA offline -- no exceptions.** If the Root key is compromised, your entire trust chain is toast. An air-gapped VM or USB-booted system works fine for a lab.
+- **The chain file order matters.** `cat intermediate.crt rootCA.crt > ca-chain.crt` -- intermediate first, then root. Get it backwards and clients will reject the chain.
+- **Inject the Root CA, not the chain, into containers.** Docker containers only need the Root CA in their trust store. The server presents the chain; the client validates it against the root.
+- **Distribute only the Root CA via GPO.** Pushing the full chain to Windows clients can cause unexpected trust issues. Let the server present the intermediate; let the client verify up to the root.
+- **Automate cert issuance early.** The signing script saved me significant time once I started issuing certs for Traefik, Authentik, and LDAPS. Manual cert generation does not scale.
 
 ---
 
@@ -269,14 +272,9 @@ After syncing (`gpupdate /force`), all domain-joined clients should trust the Ro
 This project resulted in a secure, enterprise-style certificate infrastructure for my home lab:
 
 - Hardened Root CA hosted offline
-    
 - Samba promoted to Intermediate CA
-    
-- Signed certificates for LDAP, Traefik, and Authentik
-    
-- Trusted CA rolled out via AD GPO
-    
+- Signed certificates for LDAPS, Traefik, and Authentik
+- Trusted CA distributed via AD GPO
 - Docker containers extended to trust my internal CA
-    
 
 This foundation supports advanced secure services like LDAPS, OIDC, and internal HTTPS endpoints with verified trust.

@@ -8,15 +8,11 @@ draft: false
 
 ## Remote SDN Recovery & VLAN Isolation via VPN & Shell Access
 
-### Overview
-
-In this project, I successfully re-established full access to my network management stack (Omada Controller, Proxmox GUI, and LXC containers) after losing access due to misconfigured VLAN trunking. The recovery was performed entirely **off-site**, using only a mobile device connected via an **OpenVPN tunnel**.
-
----
+Misconfigured VLAN trunking locked me out of my entire management stack — Proxmox, Omada Controller, everything. This post walks through how I recovered full access remotely, armed with nothing but a phone, an SSH client, and an OpenVPN tunnel.
 
 ### Background
 
-I transitioned my home lab management network to VLAN 99 to achieve full traffic isolation. In the process of re-tagging Proxmox and LXC container traffic and reconfiguring Cisco switch trunk ports, I lost access to the Omada Controller and Proxmox GUI. With no local access to the console, I needed a remote solution.
+I transitioned my home lab management network to VLAN 99 to achieve full traffic isolation. During the process of re-tagging Proxmox and LXC container traffic and reconfiguring Cisco switch trunk ports, I lost access to the Omada Controller and Proxmox GUI. With no local console access, I needed a remote solution.
 
 ---
 
@@ -24,7 +20,7 @@ I transitioned my home lab management network to VLAN 99 to achieve full traffic
 
 - Regain access to VLAN 99 (management)
 - Restore Omada Controller GUI and Proxmox Web GUI
-- Ensure all traffic on management interfaces is VLAN 99 tagged
+- Ensure all management interface traffic is properly VLAN 99 tagged
 
 ---
 
@@ -42,38 +38,38 @@ I transitioned my home lab management network to VLAN 99 to achieve full traffic
 
 ### Steps Performed
 
-1. **Connected to VPN Tunnel 1 (LAN access)**  
-   - Used an existing OpenVPN client-to-site tunnel connected to the LAN network  
+1. **Connected to VPN Tunnel 1 (LAN access)**
+   - Used an existing OpenVPN client-to-site tunnel connected to the LAN network
    - Leveraged this connection as a starting point
 
-2. **Established VPN Tunnel 2 (MGMT access)**  
-   - Configured a new OpenVPN tunnel to reach VLAN 99  
+2. **Established VPN Tunnel 2 (MGMT access)**
+   - Configured a new OpenVPN tunnel to reach VLAN 99
    - Verified routing and DNS from VPN client to MGMT subnet
 
-3. **Accessed Proxmox Shell Remotely**  
-   - Used SSH to access the Proxmox server shell
+3. **Accessed Proxmox Shell Remotely**
+   - Used SSH to reach the Proxmox server shell
 
-4. **Reviewed & Edited `/etc/network/interfaces`**  
-   - Created a Linux Bridge `vmbr1` on `enp1s0`  
+4. **Reviewed & Edited `/etc/network/interfaces`**
+   - Created Linux bridge `vmbr1` on `enp1s0`
    - Configured `vmbr1` as VLAN-aware with a VLAN 99 subinterface
 
-5. **Reconfigured Omada Controller LXC**  
-   - Set static IP from VLAN 99  
-   - Edited `/etc/pve/lxc/<vmid>.conf` to tag interface correctly
+5. **Reconfigured Omada Controller LXC**
+   - Set a static IP from the VLAN 99 subnet
+   - Edited `/etc/pve/lxc/<vmid>.conf` to tag the interface correctly
 
-6. **Updated pfSense Firewall Rules**  
-   - Allowed VPN access to Proxmox, Omada Controller, and LXCs  
+6. **Updated pfSense Firewall Rules**
+   - Allowed VPN access to Proxmox, Omada Controller, and LXCs
    - Verified GUI access over VPN
 
-7. **Safely Restarted Proxmox Networking Stack**  
-   - Reloaded network stack without reboot to preserve SSH session
+7. **Safely Restarted Proxmox Networking Stack**
+   - Reloaded the network stack without a reboot to preserve the SSH session
 
-8. **Verified LXC & Controller Connectivity**  
-   - Confirmed restored access to Omada Controller & Proxmox GUI  
-   - Checked VLAN 99 trunking on Cisco switch
+8. **Verified LXC & Controller Connectivity**
+   - Confirmed restored access to Omada Controller & Proxmox GUI
+   - Checked VLAN 99 trunking on the Cisco switch
 
-9. **Secured VLAN 99**  
-   - Blocked all external access to VLAN 99  
+9. **Secured VLAN 99**
+   - Blocked all external access to VLAN 99
    - Allowed only OpenVPN tunnel access
 
 10. **Tested Full Remote Management Over VPN**
@@ -82,17 +78,17 @@ I transitioned my home lab management network to VLAN 99 to achieve full traffic
 
 ### Outcome
 
-- Full recovery of Proxmox and Omada Controller  
-- Management services isolated to VLAN 99  
-- VLAN trunking corrected on switch  
-- Secure remote access via OpenVPN tunnel  
-- All executed **off-site using a mobile SSH client**
+- Full recovery of Proxmox and Omada Controller access
+- Management services isolated to VLAN 99
+- VLAN trunking corrected on the Cisco switch
+- Secure remote access established via OpenVPN tunnel
+- All recovery performed **off-site using a mobile SSH client**
 
 ---
 
-### Screenshots & CLI Snippets _(To be added)_
+### Screenshots & CLI Snippets
 
-- Network configuration diagrams  
+- Network configuration diagrams
 - VLAN trunking layout (Cisco Catalyst Switch)
 ```bash
 
@@ -126,7 +122,7 @@ Gi0/2       1,14,21,99,666
 - Proxmox Interfaces
 ```bash
 cat /etc/network/interfaces
-	
+
 auto lo
 iface lo inet loopback
 
@@ -198,21 +194,15 @@ unprivileged: 1
 
 ### Lessons Learned
 
-- Always test VLAN changes with fallback access
-- Proxmox shell is essential for remote recovery
-- OpenVPN enables secure remote SDN administration
-- Avoid dual gateway configurations on bridges
+- **Always test VLAN changes with fallback access in place.** One bad trunk port config can lock you out of everything. Keep a known-good path available before making changes.
+- **The Proxmox shell is your emergency exit.** When the GUI is unreachable, SSH into the host and fix things from the command line. This saved the entire recovery.
+- **OpenVPN makes remote SDN administration viable.** A pre-configured VPN tunnel turns your phone into a remote management console.
+- **Avoid dual gateway configurations on bridges.** Conflicting gateways on Linux bridges cause unpredictable routing — keep one default gateway and use static routes for everything else.
 
 ---
 
 ### Future Improvements
 
-- Add fallback management IP on separate VLAN
-- Setup out-of-band access (serial/IPMI)
+- Add a fallback management IP on a separate VLAN
+- Set up out-of-band access (serial/IPMI)
 - Automate Proxmox network config backups
-
----
-
-### Resume Bullet
-
-> - Performed live remote SDN infrastructure recovery using OpenVPN and SSH from a mobile device; reconfigured VLAN-tagged Proxmox bridges, updated pfSense firewall rules, and restored access to critical network services including Omada Controller and LXC containers on an isolated management VLAN.

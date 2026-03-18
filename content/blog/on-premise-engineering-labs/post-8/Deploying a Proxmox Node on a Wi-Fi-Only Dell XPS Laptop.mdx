@@ -5,29 +5,28 @@ tags: ["Proxmox", "Debian", "Wi-Fi", "Linux Bridge", "Home Lab", "Networking", "
 categories: ["On-Premise Engineering Labs"]
 draft: false
 ---
+
 ## Overview
 
-In this post, I document how I deployed Proxmox VE on a Dell XPS 15 laptop with no physical Ethernet interface. This machine was added to my home lab as a standalone hypervisor, running independently from my main Protectli-based Proxmox node.
+Proxmox assumes wired Ethernet — but what if your only available hardware is a laptop with no Ethernet port? In this post, I document how I deployed Proxmox VE on a Dell XPS 15 with Wi-Fi-only connectivity, worked through the Linux kernel's wireless bridging limitations, and transitioned from a NAT hack to a clean routed network model using pfSense static routes.
 
-Because the XPS lacks wired connectivity, I had to work through some unique networking constraints, including bridging over Wi-Fi and enabling connectivity for guest virtual machines. This write-up covers the initial NAT-based setup and the transition to a cleaner routed network model with static routes via pfSense.
-
+This machine was added to my home lab as a standalone hypervisor, running independently from my main Protectli-based Proxmox node. Because the XPS lacks wired connectivity, I had to work through some unique networking constraints, including bridging over Wi-Fi and enabling connectivity for guest virtual machines.
 
 ## Environment Summary
 
 - **Hardware**: Dell XPS 15 (no Ethernet NIC)
-    
+
 - **Host OS**: Debian 12 (Bookworm) base installation
-    
+
 - **Hypervisor**: Proxmox VE 8.4.1 installed manually
-    
-- **Wireless Interface**: `wlp0s20f3` (connected to VLAN 21 - Production)
-    
-- **Virtual Bridge**: `vmbr0` (for LXC and VM traffic on isolated subnet)
-    
+
+- **Wireless Interface**: `wlp0s20f3` (connected to VLAN 21 — Production)
+
+- **Virtual Bridge**: `vmbr0` (for LXC and VM traffic on an isolated subnet)
 
 ---
 
-## Installing Proxmox VE 8.4.1 on top of Debian 12
+## Installing Proxmox VE 8.4.1 on Top of Debian 12
 
 ### `/etc/network/interfaces`
 
@@ -69,14 +68,14 @@ This adds the Proxmox apt repository in the `sources.list.d` folder.
 wget  http://download.proxmox.com/debian/proxmox-release-bookworm.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg
 ```
 
-This adds the Proxmox gpg key and places it into a specific folder so that `apt` will find it.
+This adds the Proxmox GPG key and places it into the trusted keyring so that `apt` can verify package signatures.
 
 ```bash
 apt update
 apt full-upgrade
 ```
 
-Makes sure that everything is up to date before installing Proxmox. Once done, Proxmox can be installed from apt packages with the command below.
+This ensures everything is up to date before installing Proxmox. Once done, Proxmox can be installed from apt packages:
 
 ```bash
 apt install proxmox-ve postfix open-iscsi
@@ -88,7 +87,7 @@ apt remove os-prober
 
 ## Initial Network Setup with NAT
 
-Due to the Linux kernel’s limitation on bridging wireless interfaces directly, I created a bridge (`vmbr0`) with no attached physical ports. Initially, I used NAT (masquerading) to allow outbound internet access for containers and VMs.
+Due to the Linux kernel's limitation on bridging wireless interfaces directly, I created a bridge (`vmbr0`) with no attached physical ports. Initially, I used NAT (masquerading) to allow outbound internet access for containers and VMs.
 
 ### `/etc/network/interfaces`
 
@@ -101,7 +100,7 @@ iface vmbr0 inet static
     bridge_fd 0
 ```
 
-**Do not use** `bridge-ports`, `bridge-stp`, or `bridge-fd` — those will fail validation in Debian/Proxmox deployment.
+**Do not use** `bridge-ports`, `bridge-stp`, or `bridge-fd` (hyphenated form) — those will fail validation in Debian/Proxmox.
 
 ### Enable IP Forwarding
 
@@ -116,13 +115,13 @@ net.ipv4.ip_forward= 1
 sudo iptables -t nat -A POSTROUTING -s 172.30.30.0/24 -o wlp0s20f3 -j MASQUERADE
 ```
 
-### Make NAT Rule persistent (install iptables-persistent)
+### Make NAT Rule Persistent
 
 ```bash
 sudo apt install iptables-persistent
 ```
 
-This approach allowed outbound traffic but made the Proxmox node act as a NAT gateway. The firewall (pfSense) would only see the host’s IP (`172.21.21.15`) and not the internal clients.
+This approach allowed outbound traffic but made the Proxmox node act as a NAT gateway. The firewall (pfSense) would only see the host's IP (`172.21.21.15`), not the internal clients — which limits visibility and breaks per-client firewall rules.
 
 ---
 
@@ -136,7 +135,7 @@ To enable full visibility and allow routed traffic from other VLANs, I removed t
 sudo iptables -t nat -D POSTROUTING -s 172.30.30.0/24 -o wlp0s20f3 -j MASQUERADE
 ```
 
-### Save Cleaned-up Rules
+### Save Cleaned-Up Rules
 
 ```bash
 sudo iptables-save > /etc/iptables/rules.v4
@@ -145,42 +144,35 @@ sudo iptables-save > /etc/iptables/rules.v4
 ### pfSense Static Route Configuration
 
 - **Destination Network**: `172.30.30.0/24`
-    
+
 - **Gateway**: `172.21.21.15` (Proxmox host IP)
-    
+
 - **Interface**: Production VLAN (VLAN 21)
-    
+
 - **Firewall Rules**: Allowed inter-VLAN access from trusted zones
-    
 
 ### LXC/VM Guest Network Settings
 
 - **IP Address**: `172.30.30.x`
-    
-- **Subnet Mask**: `255.255.255.0`
-    
-- **Gateway**: `172.30.30.1`
-    
-- **DNS**: `172.21.21.21` (internal Pi-hole)
-    
 
-With this configuration, all traffic is routed properly between pfSense and the isolated Proxmox subnet, and there's no longer a need for NAT.
+- **Subnet Mask**: `255.255.255.0`
+
+- **Gateway**: `172.30.30.1`
+
+- **DNS**: `172.21.21.21` (internal Pi-hole)
+
+With this configuration, all traffic is routed properly between pfSense and the isolated Proxmox subnet, eliminating the need for NAT entirely.
 
 ---
 
 ## Outcome
 
-This setup enabled my Wi-Fi-only XPS laptop to function as a fully routed Proxmox hypervisor on a dedicated subnet. By avoiding NAT, I maintained visibility and control over LXC and VM traffic from my central firewall. The solution is scalable and works well within my VLAN-segmented home lab.
+This setup enabled my Wi-Fi-only XPS laptop to function as a fully routed Proxmox hypervisor on a dedicated subnet. By moving away from NAT, I maintained visibility and control over LXC and VM traffic from my central firewall. The solution is scalable and works well within my VLAN-segmented home lab.
 
 ---
 
 ## Future Plans
 
 - Add lightweight shared storage (e.g., NFS over VLAN 21)
-    
 - Automate Proxmox LXC deployment and backups via Ansible
-    
 - Possibly integrate into a Proxmox cluster using a third quorum-only node
-    
-
-

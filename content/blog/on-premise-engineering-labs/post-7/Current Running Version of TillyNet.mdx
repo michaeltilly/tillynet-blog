@@ -8,7 +8,9 @@ draft: false
 
 # Current Running Version of TillyNet
 
-TillyNet is my custom-built home lab environment designed to practice enterprise-grade network segmentation, high availability, and security enforcement using open-source tools. This architecture simulates production-level infrastructure and showcases my capabilities in network engineering, virtualization, firewall administration, and Linux system management.
+This post is the full technical breakdown of TillyNet v2.0 — my VLAN-segmented, firewall-enforced home lab built on Proxmox and pfSense. If you want to see how I apply enterprise network design principles on real hardware with open-source tools, this is the reference document.
+
+TillyNet is my custom-built home lab environment designed to practice enterprise-grade network segmentation, high availability, and security enforcement using open-source tools. This architecture simulates production-level infrastructure across network engineering, virtualization, firewall administration, and Linux system management.
 
 ---
 
@@ -65,21 +67,22 @@ Each VLAN is routed via a pfSense firewall using a router-on-a-stick model over 
 - **Network bridges**:
   - `vmbr0`: Management (backup)
   - `vmbr1`: Trunked interface to switch (VLANs 14, 21, 99)
-  - `vmbr1.99`: Tagged VLAN interface for host-level MGMT access
+  - `vmbr1.99`: Tagged VLAN interface for host-level management access
+
 ---
 
 ## Linux Networking (Proxmox)
 
-The Proxmox host is configured using Linux network bridges with VLAN-aware capabilities to support secure, segmented networking for containers and virtual machines. All networking is statically defined in `/etc/network/interfaces`, offering full control and reproducibility of the setup.
+The Proxmox host is configured using Linux network bridges with VLAN-aware capabilities to support secure, segmented networking for containers and virtual machines. All networking is statically defined in `/etc/network/interfaces`, offering full control and reproducibility.
 
 This design ensures:
 
 - **VLAN tagging at the hypervisor level**
-    
+
 - **Trunk delivery** of VLANs to LXCs and pfSense VM
-    
+
 - **Host isolation** through a dedicated VLAN interface (`vmbr1.99`)
-    
+
 - Compatibility with **PCI passthrough NICs** for physical routing
 
 #### Network Interface Layout
@@ -136,10 +139,10 @@ iface vmbr1.99 inet static
     address 172.16.99.15/24
     gateway 172.16.99.1
 ```
-  
+
 #### VLAN Usage by Containers
 
-Each LXC container is assigned to the appropriate VLAN through Proxmox’s `vlan tag` setting, while still connected to the same `vmbr1` bridge. This enables seamless multi-VLAN networking without needing additional physical NICs.
+Each LXC container is assigned to the appropriate VLAN through Proxmox's `vlan tag` setting while still connected to the same `vmbr1` bridge. This enables seamless multi-VLAN networking without needing additional physical NICs.
 
 - **Omada Controller**:
   - Bridge: `vmbr1`
@@ -155,7 +158,7 @@ With this configuration, containers receive only the VLAN traffic they are expli
 
 ### Host-Level VLAN Interface
 
-To maintain separation between the Proxmox host and the container traffic, a dedicated subinterface `vmbr1.99` is configured for the management VLAN. This allows host-level SSH and web access only from the management network.
+To maintain separation between the Proxmox host and container traffic, a dedicated subinterface `vmbr1.99` is configured for the management VLAN. This allows host-level SSH and web access only from the management network.
 
 ```bash
 auto vmbr1.99
@@ -165,9 +168,9 @@ iface vmbr1.99 inet static
     vlan-raw-device vmbr1
 ```
 
-### LXC Automation & Cron Jobs
+### LXC Automation and Cron Jobs
 
-To maintain the health and performance of containerized services within TillyNet, I’ve implemented lightweight automation using `cron` inside each LXC. This approach keeps core services updated and resilient without the overhead of full-scale configuration management tools — while still remaining extensible.
+To maintain the health and performance of containerized services within TillyNet, I implemented lightweight automation using `cron` inside each LXC. This approach keeps core services updated and resilient without the overhead of full-scale configuration management tools — while still remaining extensible.
 
 #### Pi-hole (LXC 300)
 
@@ -178,7 +181,7 @@ Automated via root cron job:
 0 2 * * * /usr/local/bin/pihole updateGravity > /var/log/pihole_cron.log 2>&1
 ```
 
-This ensures the ad-blocking and threat feed lists are kept up-to-date without manual intervention.
+This ensures the ad-blocking and threat feed lists stay up to date without manual intervention.
 
 #### Omada Controller (LXC 200)
 
@@ -204,7 +207,7 @@ This ensures both containers remain patched and secured, with logs rotated weekl
 
 ---
 
-## Services & Roles
+## Services and Roles
 
 | Service         | Location          | IP (Subnet)       | VLAN | Notes                         |
 |-----------------|-------------------|-------------------|------|-------------------------------|
@@ -244,12 +247,12 @@ This ensures both containers remain patched and secured, with logs rotated weekl
 
 ---
 
-## Learning Outcomes & Skills Demonstrated
+## Learning Outcomes
 
 - Advanced **VLAN trunking** and switch configuration
 - Implementation of **router-on-a-stick** using pfSense
 - Design of **containerized services** using LXC on Proxmox
-- Mastery of **firewall rule creation** and **policy-based routing**
+- **Firewall rule creation** and **policy-based routing**
 - Application of **zero trust principles** in a home network
 - Real-world exposure to **enterprise wireless configuration**
 - Linux and open-source toolchain integration
@@ -262,4 +265,3 @@ This deployment represents the current live version of TillyNet and serves both 
 
 > Future plans include using Ansible for automated provisioning of LXC containers and firewall rule templating.
 > This is version 2.0 of TillyNet. Future versions will expand automation, introduce container orchestration, and deploy a backup DNS service.
-

@@ -22,9 +22,18 @@ const mdxComponents = {
   LabObjective,
   NetworkDiagram,
   CodeBlock,
-  pre: ({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) => (
-    <pre {...props}>{children}</pre>
-  ),
+  pre: ({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) => {
+    // Extract language class from the inner <code> element
+    const child = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
+    if (child?.props) {
+      return (
+        <CodeBlock className={child.props.className}>
+          {child.props.children}
+        </CodeBlock>
+      );
+    }
+    return <pre {...props}>{children}</pre>;
+  },
   img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => (
     <BlogImage src={typeof src === "string" ? src : ""} alt={typeof alt === "string" ? alt : ""} />
   ),

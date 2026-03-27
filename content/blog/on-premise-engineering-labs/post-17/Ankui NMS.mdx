@@ -1,0 +1,339 @@
+---
+title: "Ankui NMS"
+date: 2026-03-26
+tags: ["ankui"]
+categories: ["On-Premise Engineering Labs"]
+draft: false
+publish: blog
+---
+# Ankui NMS — Production Deployment
+
+Deploy Ankui on any server with Docker. No source code required.
+
+## Prerequisites
+
+- Docker Engine 24+ and Docker Compose v2+
+- Network connectivity between this server and your managed devices
+- A GitHub Personal Access Token (PAT) with `read:packages` scope for pulling the container image
+
+## Docker Compose File
+
+```yaml
+# Ankui Production Deployment
+#
+# Before first use:
+#   1. Copy .env.example to .env and fill in your values
+#   2. Replace OWNER below with your GitHub username or org
+#   3. Log in to GHCR: echo "TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+#   4. Run: docker compose up -d
+#
+# To update: docker compose pull && docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ankui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-ankui}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ankui}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ankui:
+    image: ghcr.io/OWNER/ankui:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ankui}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-ankui}?schema=public
+    ports:
+      - "${ANKUI_PORT:-4000}:4000"    # HTTP + WebSocket + static frontend
+      - "57000:57000"                 # MDT gRPC dial-out telemetry
+      - "5514:5514/udp"              # Syslog receiver
+      - "16200:16200/udp"            # SNMPv3 trap listener
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  pgdata:
+```
+
+## .ENV File
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════
+# Ankui NMS — Production Environment Configuration
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Copy this file to .env and replace all CHANGE_ME values before starting.
+#
+#   cp .env.example .env
+#   nano .env
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── PostgreSQL ──────────────────────────────────────────────────────
+# Credentials for the PostgreSQL container. Change the password.
+POSTGRES_USER=ankui
+POSTGRES_PASSWORD=CHANGE_ME
+POSTGRES_DB=ankui
+
+# ─── Database Connection ────────────────────────────────────────────
+# "postgres" below is the Docker Compose service name (internal DNS).
+#
+# ⚠️  IMPORTANT: The password in this URL must EXACTLY match
+#     POSTGRES_PASSWORD above. If they differ, Ankui cannot
+#     connect to the database.
+DATABASE_URL=postgresql://ankui:CHANGE_ME@postgres:5432/ankui?schema=public
+
+# ─── Authentication ─────────────────────────────────────────────────
+# JWT signing key — must be at least 16 characters. Generate with:
+#   openssl rand -hex 32
+JWT_SECRET=CHANGE_ME
+JWT_EXPIRES_IN=24h
+
+# ─── Encryption ─────────────────────────────────────────────────────
+# AES key for encrypting stored device credentials. Must be at least
+# 32 hex characters. Generate with:
+#   openssl rand -hex 32
+ENCRYPTION_KEY=CHANGE_ME
+
+# ─── Server ─────────────────────────────────────────────────────────
+PORT=4000
+NODE_ENV=production
+
+# ─── CORS ───────────────────────────────────────────────────────────
+# Must match the URL you use to access Ankui in your browser.
+# If you access it at http://192.168.1.100:4000, set that here.
+CORS_ORIGIN=http://YOUR_SERVER_IP:4000
+
+# ─── Network ────────────────────────────────────────────────────────
+# The management IP address that your network devices will use to reach
+# Ankui for MDT telemetry (gRPC), SNMP traps, and syslog.
+# This gets provisioned into device configs during discovery.
+# Set this to your server's management interface IP.
+ANKUI_SERVER_IP=YOUR_SERVER_IP
+
+# ─── Data Retention (days, 0 = keep forever) ────────────────────────
+RETENTION_METRICS_DAYS=7
+RETENTION_SYSLOG_DAYS=14
+RETENTION_EVENTS_DAYS=30
+RETENTION_ALERTS_DAYS=30
+RETENTION_CONFIGS_DAYS=90
+RETENTION_INTERVAL_HOURS=1
+
+# ─── Optional ───────────────────────────────────────────────────────
+# Change the host-side HTTP port (container always listens on 4000).
+# ANKUI_PORT=4000
+```
+
+## Quick Start
+
+```bash
+# 1. Create your directory structure
+mkdir -p /docker/ankui && cd /docker/ankui
+
+# 2. Create docker-compose.yml and .env using the templates above
+
+# 3. Generate secrets and edit the config
+openssl rand -hex 32  # Use output for JWT_SECRET
+openssl rand -hex 32  # Use output for ENCRYPTION_KEY
+nano .env             # Set passwords, secrets, CORS_ORIGIN, ANKUI_SERVER_IP
+
+# 4. Log in to GitHub Container Registry
+echo "YOUR_GITHUB_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+
+# 5. Start Ankui
+docker compose up -d
+```
+
+### What Success Looks Like
+
+After running `docker compose up -d`, check the logs with `docker compose logs -f ankui`. A healthy startup looks like this:
+
+```
+ankui  | Waiting for PostgreSQL...
+ankui  | Running database migrations...
+ankui  | Prisma Migrate applied all migrations.
+ankui  | Starting Ankui...
+ankui  | {"level":30,"msg":"Ankui server listening on port 4000"}
+```
+
+If you see errors about missing environment variables, double-check that all `CHANGE_ME` values in your `.env` file have been replaced. If you see a database connection error, verify that the password in `DATABASE_URL` matches `POSTGRES_PASSWORD`.
+
+Ankui will be available at `http://YOUR_SERVER_IP:4000` within ~30 seconds.
+
+## First-Run Setup
+
+1. Open `http://YOUR_SERVER_IP:4000` in your browser
+2. The setup wizard appears automatically on a fresh database
+3. Create your admin account
+4. Configure device credentials (SSH/NETCONF username and password)
+5. Add devices manually or run a subnet scan to discover them
+6. Ankui begins polling, collecting telemetry, and building the topology
+
+> **AI Features:** The AI Network Reasoner (optional) is configured after login in Settings → AI Configuration. It supports Google Gemini, OpenAI, and Anthropic — just enter your API key in the UI.
+
+## Updating Ankui
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Database migrations run automatically on startup. Your data is preserved in the `pgdata` volume.
+
+## Common Operations
+
+```bash
+# View logs (live)
+docker compose logs -f ankui
+
+# View last 100 log lines
+docker compose logs --tail 100 ankui
+
+# Restart Ankui (keeps database)
+docker compose restart ankui
+
+# Stop everything
+docker compose down
+
+# Stop and delete all data (factory reset)
+docker compose down -v
+```
+
+## Ports
+
+Ankui uses the following ports. Configure your firewall accordingly.
+
+### Inbound to Ankui (server must LISTEN on these)
+
+|Port|Protocol|Service|Source|
+|---|---|---|---|
+|4000|TCP|HTTP / WebSocket / Frontend|Your browser|
+|57000|TCP|MDT gRPC dial-out telemetry|IOS-XE devices|
+|5514|UDP|Syslog|Network devices|
+|16200|UDP|SNMPv3 traps|Network devices|
+|5432|TCP|PostgreSQL|Internal only (remove from compose in hardened setups)|
+
+### Outbound from Ankui (server must REACH these on devices)
+
+|Port|Protocol|Service|Destination|
+|---|---|---|---|
+|830|TCP|NETCONF (SSH)|Cisco IOS-XE, Junos|
+|443|TCP|RESTCONF (HTTPS)|Cisco IOS-XE|
+|161|UDP|SNMP polling|All devices|
+|22|TCP|SSH (CLI fallback)|All devices|
+
+## Networking Notes
+
+**CORS_ORIGIN** must match exactly how you access Ankui in the browser. If you browse to `http://192.168.1.50:4000`, set `CORS_ORIGIN=http://192.168.1.50:4000`. A mismatch will cause API requests to fail silently.
+
+**ANKUI_SERVER_IP** is the IP that gets provisioned into device configurations when you enable telemetry, SNMP traps, or syslog via Ankui. Set it to the management IP your devices can reach.
+
+**Reverse proxy:** If placing Ankui behind nginx or Caddy, proxy to `localhost:4000`. Ensure WebSocket upgrade headers are forwarded for Socket.io. Set `CORS_ORIGIN` to the external URL users will access.
+
+**Firewall:** At minimum, open port 4000/tcp for browser access and 830/tcp outbound for NETCONF. Open 57000/tcp, 5514/udp, and 16200/udp inbound if you want devices to push telemetry, syslog, and traps to Ankui.
+
+## Troubleshooting
+
+**Container exits immediately**
+
+```bash
+docker compose logs ankui
+```
+
+Check for missing or invalid environment variables. The most common cause is a missing `JWT_SECRET` or `ENCRYPTION_KEY`.
+
+**"needsSetup: true" but wizard doesn't appear** Clear your browser cache or try an incognito window. The frontend is a single-page app served from the same port.
+
+**Devices aren't discovered**
+
+- Verify `ANKUI_SERVER_IP` is reachable from your devices
+- Check that NETCONF is enabled on the device (port 830)
+- Confirm the credentials you entered in Ankui match the device
+
+**MDT telemetry not arriving**
+
+- Verify port 57000/tcp is open on the server firewall
+- On IOS-XE, check `show telemetry ietf subscription all` — the receiver IP must match `ANKUI_SERVER_IP`
+
+**Syslog not arriving**
+
+- Verify port 5514/udp is open
+- Device syslog config must point to `ANKUI_SERVER_IP` port 5514 (not the standard 514)
+
+**SNMP traps not arriving**
+
+- Verify port 16200/udp is open
+- Device SNMP trap target must be `ANKUI_SERVER_IP` port 16200
+
+**Database connection refused**
+
+- Check `docker compose ps` — the postgres container should show "healthy"
+- Ensure `POSTGRES_PASSWORD` in `.env` matches the password in `DATABASE_URL`
+
+## Device Configuration Reference
+
+Minimal configuration to get devices talking to Ankui. Replace `ANKUI_IP` with your `ANKUI_SERVER_IP` value.
+
+### Cisco IOS-XE
+
+```
+! NETCONF (required for discovery and provisioning)
+netconf-yang
+netconf ssh
+netconf-yang ssh port 830
+netconf max-sessions 5
+username {NETCONF_USER} privilege 15 secret {NETCONF_PASS}
+
+! RESTCONF (optional, used for some data collection)
+ip http server
+ip http secure-server
+ip http authentication local
+restconf
+
+! SNMP traps (optional)
+snmp-server view {ANKUI_VIEW} iso included
+snmp-server group {ANKUI_GROUP} v3 priv read {ANKUI_VIEW} access {ANKUI_SNMP}
+snmp-server user {ankui} {ANKUI_GROUP} v3 auth sha {AUTH_PASS} priv aes 128 {PRIV_PASS}
+snmp-server host {ANKUI_IP} version 3 priv ankui udp-port 16200
+snmp-server enable traps snmp linkdown linkup coldstart warmstart authentication
+
+! Syslog (optional)
+logging host {ANKUI_IP} transport udp port 5514
+
+! MDT telemetry is configured automatically by Ankui during provisioning
+```
+
+### Juniper Junos
+
+```
+! NETCONF (required for discovery and provisioning)
+set system services netconf ssh
+
+! SNMP traps (optional)
+set snmp v3 target-address ankui address ANKUI_IP port 16200
+
+! Syslog (optional)
+set system syslog host ANKUI_IP port 5514 any warning
+
+! MDT telemetry: Junos uses SNMP/NETCONF polling, not gRPC dial-out
+```
